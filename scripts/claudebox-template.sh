@@ -27,9 +27,11 @@ SECCOMP_PROFILE="$HOME/.claudebox/seccomp.json"
 mkdir -p ~/.claudebox/claude-config
 mkdir -p ~/.claudebox/claude-dotconfig
 mkdir -p ~/.claudebox/plugins
-# Seed sandbox plugins from host on first run (copies Anthropic marketplace, etc.)
-if [ -d ~/.claude/plugins ] && [ ! -d ~/.claudebox/plugins/marketplaces ]; then
-  cp -R ~/.claude/plugins/* ~/.claudebox/plugins/ 2>/dev/null || true
+# Seed sandbox plugins from host on first run (copies marketplace repos only, not metadata)
+# Metadata files (known_marketplaces.json, etc.) contain host paths that won't work in the
+# container, so we let Claude Code recreate them with correct container paths.
+if [ -d ~/.claude/plugins/marketplaces ] && [ ! -d ~/.claudebox/plugins/marketplaces ]; then
+  cp -R ~/.claude/plugins/marketplaces ~/.claudebox/plugins/ 2>/dev/null || true
 fi
 # Initialize .claude.json if missing or empty (Claude Code expects valid JSON)
 [ -s ~/.claudebox/.claude.json ] || echo '{}' > ~/.claudebox/.claude.json

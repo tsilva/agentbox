@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(terminal-notifier:*)",
-      "Bash(sw_vers:*)"
+      "Bash(sw_vers:*)",
+      "Bash(./claudebox-dev.sh install:*)",
+      "Bash(echo \"cd ~/.claude/plugins/marketplaces/claude-plugins-official && git fetch 2>&1\")",
+      "Bash(claudebox shell)"
     ],
     "deny": []
   },
