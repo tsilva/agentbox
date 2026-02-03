@@ -1,10 +1,10 @@
 #!/bin/bash
 # =============================================================================
-# claude-sandbox-template.sh - Standalone script template
+# claudebox-template.sh - Standalone script template
 #
 # This template is processed by do_install() which replaces
 # PLACEHOLDER_IMAGE_NAME with the real value. The resulting script is installed to
-# ~/.claude-sandbox/bin/ and becomes the user-facing CLI.
+# ~/.claudebox/bin/ and becomes the user-facing CLI.
 # =============================================================================
 
 # Abort on any error
@@ -20,14 +20,14 @@ IMAGE_NAME="PLACEHOLDER_IMAGE_NAME"
 : "${TMPFS_LOCAL_SIZE:=512m}"
 
 # Seccomp profile path (for syscall filtering)
-SECCOMP_PROFILE="$HOME/.claude-sandbox/seccomp.json"
+SECCOMP_PROFILE="$HOME/.claudebox/seccomp.json"
 
 # Ensure the persistent config directory and session state file exist.
 # claude-config is mounted into the container as ~/.claude/ for credentials.
-mkdir -p ~/.claude-sandbox/claude-config
-mkdir -p ~/.claude-sandbox/claude-dotconfig
+mkdir -p ~/.claudebox/claude-config
+mkdir -p ~/.claudebox/claude-dotconfig
 # Initialize .claude.json if missing or empty (Claude Code expects valid JSON)
-[ -s ~/.claude-sandbox/.claude.json ] || echo '{}' > ~/.claude-sandbox/.claude.json
+[ -s ~/.claudebox/.claude.json ] || echo '{}' > ~/.claudebox/.claude.json
 
 # --- Argument parsing ---
 # Arrays and variables for building the docker run command
@@ -35,7 +35,7 @@ entrypoint_args=()     # Override entrypoint (used for "shell" command)
 extra_mounts=()        # Additional -v mounts from profile config
 extra_ports=()         # Additional -p ports from profile config
 workdir="$(pwd)"       # Mount the current directory as the working directory
-profile_name=""        # Selected profile from .claude-sandbox.json
+profile_name=""        # Selected profile from .claudebox.json
 cmd_args=()            # Arguments forwarded to Claude Code inside the container
 first_cmd=""           # First non-flag argument (used to detect "shell" command)
 skip_next=false        # Flag to skip the next argument (used for --profile value)
@@ -75,31 +75,31 @@ if [ "$first_cmd" = "shell" ]; then
   cmd_args=("${cmd_args[@]:1}")
 fi
 
-# --- Per-project configuration (.claude-sandbox.json) ---
-if [ -f ".claude-sandbox.json" ]; then
+# --- Per-project configuration (.claudebox.json) ---
+if [ -f ".claudebox.json" ]; then
   # jq is required to parse the JSON config
   if ! command -v jq &>/dev/null; then
-    echo "Warning: jq not installed, skipping .claude-sandbox.json config" >&2
+    echo "Warning: jq not installed, skipping .claudebox.json config" >&2
     echo "Install with: brew install jq" >&2
   else
     # Validate the config file is a JSON object (not array, string, etc.)
     jq_error=""
-    if ! jq_error=$(jq -e 'type == "object"' .claude-sandbox.json 2>&1); then
-      echo "Error: Invalid .claude-sandbox.json: $jq_error" >&2
+    if ! jq_error=$(jq -e 'type == "object"' .claudebox.json 2>&1); then
+      echo "Error: Invalid .claudebox.json: $jq_error" >&2
       exit 1
     fi
 
     # Count available profiles (root-level keys in the JSON object)
-    profile_count=$(jq 'keys | length' .claude-sandbox.json 2>/dev/null || echo 0)
+    profile_count=$(jq 'keys | length' .claudebox.json 2>/dev/null || echo 0)
 
     # If no profile was specified via flag, auto-select or prompt interactively
     if [ -z "$profile_name" ] && [ "$profile_count" -eq 1 ]; then
-      profile_name=$(jq -r 'keys[0]' .claude-sandbox.json)
+      profile_name=$(jq -r 'keys[0]' .claudebox.json)
       echo "Using profile: $profile_name" >&2
     elif [ -z "$profile_name" ] && [ "$profile_count" -gt 1 ]; then
       # Read profile names into an array for the select menu (compatible with Bash 3)
       profile_array=()
-      while IFS= read -r _p; do profile_array+=("$_p"); done < <(jq -r 'keys[]' .claude-sandbox.json)
+      while IFS= read -r _p; do profile_array+=("$_p"); done < <(jq -r 'keys[]' .claudebox.json)
       echo "Available profiles:" >&2
       # Present a numbered menu; reads from /dev/tty so it works in pipes
       select profile_name in "${profile_array[@]}"; do
@@ -110,9 +110,9 @@ if [ -f ".claude-sandbox.json" ]; then
 
     # Validate the selected profile exists in the config
     if [ -n "$profile_name" ]; then
-      if ! jq -e --arg p "$profile_name" 'has($p)' .claude-sandbox.json &>/dev/null; then
+      if ! jq -e --arg p "$profile_name" 'has($p)' .claudebox.json &>/dev/null; then
         echo "Error: Profile '$profile_name' not found" >&2
-        echo "Available: $(jq -r 'keys | join(", ")' .claude-sandbox.json)" >&2
+        echo "Available: $(jq -r 'keys | join(", ")' .claudebox.json)" >&2
         exit 1
       fi
 
@@ -130,7 +130,7 @@ if [ -f ".claude-sandbox.json" ]; then
           ulimit_nofile: (.ulimit_nofile // null),
           ulimit_fsize: (.ulimit_fsize // null)
         }
-      ' .claude-sandbox.json 2>/dev/null)
+      ' .claudebox.json 2>/dev/null)
 
       # --- Dangerous path blocklist ---
       # These paths are blocked to prevent exposing sensitive host system data
@@ -145,7 +145,7 @@ if [ -f ".claude-sandbox.json" ]; then
         "$HOME/.config/gcloud" "$HOME/.kube" "$HOME/.docker" "$HOME/.npmrc"
         "$HOME/.netrc" "$HOME/.password-store" "$HOME/.local/share/keyrings"
         # Claude-specific (already managed)
-        "$HOME/.claude" "$HOME/.claude-sandbox"
+        "$HOME/.claude" "$HOME/.claudebox"
       )
 
       normalize_path() {
@@ -253,15 +253,15 @@ resource_args=()
 [ -n "${profile_ulimit_fsize:-}" ] && resource_args+=(--ulimit "fsize=$profile_ulimit_fsize:$profile_ulimit_fsize")
 
 # --- Per-project Dockerfile ---
-# If a project provides .claude-sandbox.Dockerfile, build a custom image
+# If a project provides .claudebox.Dockerfile, build a custom image
 # layered on top of the base image for project-specific dependencies
 run_image="$IMAGE_NAME"
-if [ -f ".claude-sandbox.Dockerfile" ]; then
+if [ -f ".claudebox.Dockerfile" ]; then
   run_image="${IMAGE_NAME}-project"
   echo "Building per-project image..." >&2
   # Build quietly (-q) since this runs on every invocation
-  if ! docker build -q -f .claude-sandbox.Dockerfile -t "$run_image" . >&2; then
-    echo "Error: Failed to build per-project image from .claude-sandbox.Dockerfile" >&2
+  if ! docker build -q -f .claudebox.Dockerfile -t "$run_image" . >&2; then
+    echo "Error: Failed to build per-project image from .claudebox.Dockerfile" >&2
     exit 1
   fi
 fi
@@ -284,7 +284,7 @@ fi
 # Ensure the seccomp profile exists before running the container
 if [ ! -f "$SECCOMP_PROFILE" ]; then
   echo "Error: Seccomp profile not found at $SECCOMP_PROFILE" >&2
-  echo "Please reinstall claude-sandbox." >&2
+  echo "Please reinstall claudebox." >&2
   exit 1
 fi
 
@@ -294,10 +294,10 @@ fi
 container_args=()
 if [ "$audit_log" = "true" ]; then
   # Name includes timestamp and PID for uniqueness across concurrent sessions
-  container_name="claude-sandbox-$(date +%s)-$$"
+  container_name="claudebox-$(date +%s)-$$"
   container_args+=(--name "$container_name")
   # Ensure the logs directory exists for session log dumps
-  mkdir -p ~/.claude-sandbox/logs
+  mkdir -p ~/.claudebox/logs
 else
   # Auto-remove container on exit for zero disk overhead
   container_args+=(--rm)
@@ -328,7 +328,7 @@ docker_cmd=(
   --tmpfs "/tmp:rw,nosuid,size=$TMPFS_TMP_SIZE"
   --tmpfs "/home/claude/.cache:rw,nosuid,size=$TMPFS_CACHE_SIZE"
   --tmpfs "/home/claude/.npm:rw,nosuid,size=$TMPFS_NPM_SIZE"
-  -v ~/.claude-sandbox/claude-dotconfig:/home/claude/.config${ro_suffix}
+  -v ~/.claudebox/claude-dotconfig:/home/claude/.config${ro_suffix}
   --tmpfs "/home/claude/.local:rw,nosuid,size=$TMPFS_LOCAL_SIZE,uid=1000,gid=1000"
   # Apply resource limits (if configured in profile)
   ${resource_args[@]+"${resource_args[@]}"}
@@ -339,9 +339,9 @@ docker_cmd=(
   # Mount the current project directory at the same path for path parity
   -v "$workdir:$workdir${ro_suffix}"
   # Persist Claude Code credentials and config across sessions
-  -v ~/.claude-sandbox/claude-config:/home/claude/.claude${ro_suffix}
+  -v ~/.claudebox/claude-config:/home/claude/.claude${ro_suffix}
   # Persist Claude Code session state (conversation history, etc.)
-  -v ~/.claude-sandbox/.claude.json:/home/claude/.claude.json${ro_suffix}
+  -v ~/.claudebox/.claude.json:/home/claude/.claude.json${ro_suffix}
   # Mount marketplace plugins read-only so Claude can use installed plugins
   -v ~/.claude/plugins/marketplaces:/home/claude/.claude/plugins/marketplaces:ro
   # Add readonly mode tmpfs overlay (plans directory) when enabled
@@ -380,7 +380,7 @@ if [ "$audit_log" = "true" ]; then
   "${docker_cmd[@]}" || exit_code=$?
 
   # Dump the container's stdout/stderr to a log file for audit review
-  log_file=~/.claude-sandbox/logs/${container_name}.log
+  log_file=~/.claudebox/logs/${container_name}.log
   docker logs "$container_name" > "$log_file" 2>&1 || true
   # Remove the named container now that logs are captured
   docker rm "$container_name" &>/dev/null || true

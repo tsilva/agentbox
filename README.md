@@ -1,59 +1,57 @@
 <div align="center">
-  <img src="logo.png" alt="claude-sandbox" width="512"/>
+  <img src="logo.png" alt="claudebox" width="512"/>
 
-  # claude-sandbox
+  # claudebox
 
   [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
   [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-  [![GitHub last commit](https://img.shields.io/github/last-commit/tsilva/claude-sandbox)](https://github.com/tsilva/claude-sandbox/commits/main)
+  [![GitHub last commit](https://img.shields.io/github/last-commit/tsilva/claudebox)](https://github.com/tsilva/claudebox/commits/main)
 
-  **🤖 Let AI code autonomously. Without fear.**
+  **Let AI code autonomously. Without fear.**
 
   > *"I gave Claude full autonomy and watched it refactor my codebase. My system? Untouched."*
 
   <img src="demo.gif" alt="Demo" width="600"/>
-
-  ⭐ **Like it? [Star the repo](https://github.com/tsilva/claude-sandbox) to help others find it!**
 
   [Docker](https://docs.docker.com/get-docker/) · [Claude Code](https://claude.ai/code)
 </div>
 
 ---
 
-## 📑 Table of Contents
+## Table of Contents
 
-- [✨ Features](#-features)
-- [🤔 Why claude-sandbox?](#-why-claude-sandbox)
-- [🚀 Quick Start](#-quick-start)
-- [📋 Requirements](#-requirements)
-- [🔐 Authentication](#-authentication)
-- [💻 Usage](#-usage)
-- [⚙️ Per-Project Configuration](#️-per-project-configuration)
-- [🐳 Per-Project Dockerfile](#-per-project-dockerfile)
-- [🛠️ Commands](#️-commands)
-- [🔍 How It Works](#-how-it-works)
-- [📁 Project Structure](#-project-structure)
-- [🔧 Troubleshooting](#-troubleshooting)
-- [🔔 Notifications](#-notifications)
-- [🔒 Security](#-security)
-- [🌐 Community](#-community)
-- [📄 License](#-license)
+- [Features](#-features)
+- [Why claudebox?](#-why-claudebox)
+- [Quick Start](#-quick-start)
+- [Requirements](#-requirements)
+- [Authentication](#-authentication)
+- [Usage](#-usage)
+- [Per-Project Configuration](#️-per-project-configuration)
+- [Per-Project Dockerfile](#-per-project-dockerfile)
+- [Commands](#️-commands)
+- [How It Works](#-how-it-works)
+- [Project Structure](#-project-structure)
+- [Troubleshooting](#-troubleshooting)
+- [Notifications](#-notifications)
+- [Security](#-security)
+- [Community](#-community)
+- [License](#-license)
 
-## ✨ Features
+## Features
 
-- **🔒 Isolated execution** — Claude runs in a container with no access to your host filesystem (except mounted paths)
-- **⚡ Full autonomy** — No permission prompts; Claude can execute any command inside the sandbox
-- **📂 Same-path mounting** — Your project directory is mounted at its actual path, so file paths work identically inside and outside the container
-- **🎛️ Per-project configuration** — Define additional mounts and ports via `.claude-sandbox.json` for data directories, output folders, and more
-- **🏗️ Per-project Dockerfile** — Customize the container with project-specific dependencies using `.claude-sandbox.Dockerfile`
-- **🧩 Plugin support** — Marketplace plugins from `~/.claude/plugins/marketplaces` are mounted read-only into the container
-- **🎯 Simple setup** — One install script adds a standalone command you can run from any project
+- **Isolated execution** — Claude runs in a container with no access to your host filesystem (except mounted paths)
+- **Full autonomy** — No permission prompts; Claude can execute any command inside the sandbox
+- **Same-path mounting** — Your project directory is mounted at its actual path, so file paths work identically inside and outside the container
+- **Per-project configuration** — Define additional mounts and ports via `.claudebox.json` for data directories, output folders, and more
+- **Per-project Dockerfile** — Customize the container with project-specific dependencies using `.claudebox.Dockerfile`
+- **Plugin support** — Marketplace plugins from `~/.claude/plugins/marketplaces` are mounted read-only into the container
+- **Simple setup** — One install script adds a standalone command you can run from any project
 
-## 🤔 Why claude-sandbox?
+## Why claudebox?
 
 **The problem:** Claude Code with `--dangerously-skip-permissions` can modify any file on your system. One wrong command and your SSH keys, git config, or system files could be gone.
 
-**The solution:** claude-sandbox runs Claude Code in a Docker container where it has full autonomy *inside the sandbox*, but zero access to your host system except the mounted project directory.
+**The solution:** claudebox runs Claude Code in a Docker container where it has full autonomy *inside the sandbox*, but zero access to your host system except the mounted project directory.
 
 | Without sandbox | With sandbox |
 |-----------------|--------------|
@@ -64,92 +62,92 @@
 
 **TL;DR:** Full AI autonomy, zero host risk.
 
-## 🚀 Quick Start
+## Quick Start
 
 **Option 1: One-liner install**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tsilva/claude-sandbox/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tsilva/claudebox/main/install.sh | bash
 ```
 
 **Option 2: Manual install**
 ```bash
-git clone https://github.com/tsilva/claude-sandbox.git
-cd claude-sandbox
-./claude-sandbox-dev.sh install
+git clone https://github.com/tsilva/claudebox.git
+cd claudebox
+./claudebox-dev.sh install
 ```
 
 Then reload your shell and authenticate once (uses your Claude Pro/Max subscription):
 
 ```bash
-claude-sandbox login
+claudebox login
 ```
 
 Now head to any project directory and start coding:
 
 ```bash
 cd ~/my-project
-claude-sandbox
+claudebox
 ```
 
-## 📋 Requirements
+## Requirements
 
 - [Docker Desktop](https://docs.docker.com/get-docker/) on macOS (Linux/WSL2 not yet supported)
 - **Optional:** `jq` for per-project configuration support (`brew install jq`)
 
-## 🔐 Authentication
+## Authentication
 
-claude-sandbox uses your Claude Pro/Max subscription instead of API keys. On first use, authenticate via browser:
+claudebox uses your Claude Pro/Max subscription instead of API keys. On first use, authenticate via browser:
 
 ```bash
-claude-sandbox login
+claudebox login
 ```
 
-This opens a browser window for OAuth authentication. Your credentials are stored in `~/.claude-sandbox/` and persist across all container sessions — you only need to log in once.
+This opens a browser window for OAuth authentication. Your credentials are stored in `~/.claudebox/` and persist across all container sessions — you only need to log in once.
 
-## 💻 Usage
+## Usage
 
 ```bash
 # Run Claude Code in the sandbox (interactive mode)
-claude-sandbox
+claudebox
 
 # Pass arguments to Claude (e.g., login)
-claude-sandbox login
+claudebox login
 
 # Non-interactive print mode: run a prompt and exit
-claude-sandbox -p "explain this code"
-claude-sandbox --print "what does main.py do"
+claudebox -p "explain this code"
+claudebox --print "what does main.py do"
 
 # Pipe input to print mode
-cat README.md | claude-sandbox -p "summarize this"
+cat README.md | claudebox -p "summarize this"
 
 # Print mode with output format for scripting
-claude-sandbox -p --output-format json "list all functions"
+claudebox -p --output-format json "list all functions"
 
 # Drop into a bash shell to inspect the sandbox environment
-claude-sandbox shell
+claudebox shell
 
 # With profiles (see Per-Project Configuration)
-claude-sandbox --profile dev       # Use specific profile
-claude-sandbox -P prod             # Short form (-P uppercase)
-claude-sandbox --profile dev login # Profile + args to Claude
+claudebox --profile dev       # Use specific profile
+claudebox -P prod             # Short form (-P uppercase)
+claudebox --profile dev login # Profile + args to Claude
 
 # Combine profile with print mode
-claude-sandbox -P dev -p "run tests"
+claudebox -P dev -p "run tests"
 
 # Mount all host paths as read-only (workspace, config, extra mounts)
-claude-sandbox --readonly
+claudebox --readonly
 
 # Print the full docker run command without executing
-claude-sandbox --dry-run
+claudebox --dry-run
 ```
 
-💡 The `shell` argument is useful for debugging or exploring what tools and files are available inside the container.
+The `shell` argument is useful for debugging or exploring what tools and files are available inside the container.
 
-💡 **Print mode** (`-p` / `--print`) runs non-interactively, executes the prompt, and exits. This is useful for scripting and automation.
+**Print mode** (`-p` / `--print`) runs non-interactively, executes the prompt, and exits. This is useful for scripting and automation.
 
-## ⚙️ Per-Project Configuration
+## Per-Project Configuration
 
-Create a `.claude-sandbox.json` file in your project root to define named profiles with mounts and ports:
+Create a `.claudebox.json` file in your project root to define named profiles with mounts and ports:
 
 ```json
 {
@@ -179,23 +177,23 @@ Create a `.claude-sandbox.json` file in your project root to define named profil
 | `ports[].host` | Yes | Host port number (1-65535) |
 | `ports[].container` | Yes | Container port number (1-65535) |
 | `network` | No | Docker network mode: `"bridge"` (default) or `"none"` for isolation |
-| `audit_log` | No | If `true`, saves session logs to `~/.claude-sandbox/logs/` (default: `false`) |
+| `audit_log` | No | If `true`, saves session logs to `~/.claudebox/logs/` (default: `false`) |
 | `cpu` | No | CPU limit (e.g., `"4"`) — maps to `docker --cpus` |
 | `memory` | No | Memory limit (e.g., `"8g"`) — maps to `docker --memory` |
 | `pids_limit` | No | Max processes (e.g., `256`) — maps to `docker --pids-limit` |
 | `ulimit_nofile` | No | Open file descriptors limit (e.g., `"1024:2048"`) |
 | `ulimit_fsize` | No | Max file size in bytes (e.g., `1073741824`) |
 
-🔒 **Git safety:** When running from a git repository, the `.git` directory is mounted read-only, preventing commits and other write operations. No SSH keys or git credentials are available in the container, so pushes will also fail. When running outside a git repo, a warning is displayed.
+**Git safety:** When running from a git repository, the `.git` directory is mounted read-only, preventing commits and other write operations. No SSH keys or git credentials are available in the container, so pushes will also fail. When running outside a git repo, a warning is displayed.
 
 **Profile selection:**
 - **With `--profile` or `-P`**: Use the specified profile directly
 - **Without flag**: Interactive numbered menu
 
 ```bash
-claude-sandbox --profile dev   # Use specific profile
-claude-sandbox -P prod         # Short form (-P uppercase)
-claude-sandbox                 # Interactive prompt to select profile
+claudebox --profile dev   # Use specific profile
+claudebox -P prod         # Short form (-P uppercase)
+claudebox                 # Interactive prompt to select profile
 ```
 
 > **Note:** The `-P` (uppercase) flag is used for profiles to avoid collision with Claude's `-p` (lowercase) print mode flag.
@@ -218,14 +216,14 @@ claude-sandbox                 # Interactive prompt to select profile
 }
 ```
 
-📝 **Note:** Requires `jq` to be installed. If `jq` is missing or the config file is invalid, extra mounts and ports are skipped with a warning and the sandbox runs normally.
+**Note:** Requires `jq` to be installed. If `jq` is missing or the config file is invalid, extra mounts and ports are skipped with a warning and the sandbox runs normally.
 
-## 🐳 Per-Project Dockerfile
+## Per-Project Dockerfile
 
-Place a `.claude-sandbox.Dockerfile` in your project root to customize the container with project-specific dependencies. The file is a standard Dockerfile that builds on top of the base image:
+Place a `.claudebox.Dockerfile` in your project root to customize the container with project-specific dependencies. The file is a standard Dockerfile that builds on top of the base image:
 
 ```dockerfile
-FROM claude-sandbox
+FROM claudebox
 
 RUN apt-get update && apt-get install -y python3 python3-pip
 RUN pip3 install pandas
@@ -233,17 +231,17 @@ RUN pip3 install pandas
 
 When present, a per-project image is automatically built before each run. This lets you pre-install tools, libraries, or system packages that your project needs without modifying the shared base image.
 
-## 🛠️ Commands
+## Commands
 
 | Command | Purpose |
 |---------|---------|
-| `./claude-sandbox-dev.sh install` | Build image and install `claude-sandbox` script to `~/.claude-sandbox/bin/` |
-| `./claude-sandbox-dev.sh build` | Rebuild the container image |
-| `./claude-sandbox-dev.sh update` | Pull latest changes and rebuild |
-| `./claude-sandbox-dev.sh uninstall` | Remove the container image |
-| `./claude-sandbox-dev.sh kill` | Force stop any running containers |
+| `./claudebox-dev.sh install` | Build image and install `claudebox` script to `~/.claudebox/bin/` |
+| `./claudebox-dev.sh build` | Rebuild the container image |
+| `./claudebox-dev.sh update` | Pull latest changes and rebuild |
+| `./claudebox-dev.sh uninstall` | Remove the container image |
+| `./claudebox-dev.sh kill` | Force stop any running containers |
 
-## 🔍 How It Works
+## How It Works
 
 ```mermaid
 graph LR
@@ -253,22 +251,22 @@ graph LR
     D -->|changes| A
 ```
 
-1. **`claude-sandbox-dev.sh install`** builds an OCI-compatible image and installs a standalone script to `~/.claude-sandbox/bin/`
-2. Running `claude-sandbox` starts a container with your current directory mounted at its actual path
+1. **`claudebox-dev.sh install`** builds an OCI-compatible image and installs a standalone script to `~/.claudebox/bin/`
+2. Running `claudebox` starts a container with your current directory mounted at its actual path
 3. Claude Code runs with `--dangerously-skip-permissions` inside the isolated environment
 4. All changes to the mounted directory are reflected in your project
-5. Optional: `.claude-sandbox.json` adds extra mounts for data directories
+5. Optional: `.claudebox.json` adds extra mounts for data directories
 6. Marketplace plugins from `~/.claude/plugins/marketplaces` are mounted read-only into the container
 
-## 📁 Project Structure
+## Project Structure
 
 ```
-claude-sandbox/
+claudebox/
 ├── Dockerfile              # OCI-compatible image definition
 ├── .dockerignore           # Files excluded from build context
-├── claude-sandbox-dev.sh   # Dev CLI (build/install/uninstall/kill/update)
+├── claudebox-dev.sh        # Dev CLI (build/install/uninstall/kill/update)
 ├── scripts/
-│   ├── claude-sandbox-template.sh  # Standalone script template
+│   ├── claudebox-template.sh   # Standalone script template
 │   └── install-claude-code.sh  # Claude Code installer
 ├── tests/
 │   └── smoke-test.sh       # Basic smoke tests
@@ -279,9 +277,9 @@ claude-sandbox/
 └── README.md
 ```
 
-## ⚙️ Resource Limits
+## Resource Limits
 
-By default, containers run without resource limits. To restrict CPU, memory, or processes, add the fields to your `.claude-sandbox.json` profile:
+By default, containers run without resource limits. To restrict CPU, memory, or processes, add the fields to your `.claudebox.json` profile:
 
 ```json
 {
@@ -295,7 +293,7 @@ By default, containers run without resource limits. To restrict CPU, memory, or 
 }
 ```
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
 ### Docker not running
 
@@ -310,7 +308,7 @@ docker info  # Should show Docker daemon info
 This usually indicates network issues inside the container. Verify Docker has internet access:
 
 ```bash
-claude-sandbox shell
+claudebox shell
 # Inside container:
 curl -I https://api.anthropic.com
 ```
@@ -320,7 +318,7 @@ curl -I https://api.anthropic.com
 The container user UID is set at build time to match your host user. If you see permission errors on mounted files, rebuild:
 
 ```bash
-./claude-sandbox-dev.sh build  # Rebuilds with your current UID
+./claudebox-dev.sh build  # Rebuilds with your current UID
 ```
 
 ### "Configuration file corrupted" on first run
@@ -328,25 +326,25 @@ The container user UID is set at build time to match your host user. If you see 
 The `.claude.json` file needs to be valid JSON. Reset it:
 
 ```bash
-echo '{}' > ~/.claude-sandbox/.claude.json
+echo '{}' > ~/.claudebox/.claude.json
 ```
 
 ### Login doesn't persist
 
 Make sure both config paths are mounted. Check the generated script includes:
-- `-v ~/.claude-sandbox/claude-config:/home/claude/.claude`
-- `-v ~/.claude-sandbox/.claude.json:/home/claude/.claude.json`
+- `-v ~/.claudebox/claude-config:/home/claude/.claude`
+- `-v ~/.claudebox/.claude.json:/home/claude/.claude.json`
 
 ### Per-project mounts not working
 
 1. Verify `jq` is installed: `which jq` or `brew install jq`
-2. Validate your config: `jq . .claude-sandbox.json`
+2. Validate your config: `jq . .claudebox.json`
 3. Check paths are absolute (start with `/`)
 4. Ensure mount paths exist on the host (see `mkdir -p` hint in warnings)
 
 ### Port conflicts
 
-If a port is already in use on the host, you'll see a bind error. Change the host port in `.claude-sandbox.json` or stop the conflicting process:
+If a port is already in use on the host, you'll see a bind error. Change the host port in `.claudebox.json` or stop the conflicting process:
 
 ```bash
 lsof -i :3000  # Find what's using the port
@@ -356,20 +354,20 @@ lsof -i :3000  # Find what's using the port
 
 If builds or runs fail with out-of-memory errors, increase Docker Desktop's resource allocation in **Settings > Resources**.
 
-## 🔔 Notifications
+## Notifications
 
 For macOS desktop notifications when Claude is ready for input, install [claude-code-notify](https://github.com/tsilva/claude-code-notify) and enable sandbox support during its installation.
 
 The notification bridge uses TCP (`host.docker.internal:19223`) to relay messages from the container to the host, where `terminal-notifier` displays them.
 
-## 🔒 Security
+## Security
 
 See [SECURITY.md](SECURITY.md) for details on the isolation model, what is and isn't protected, and how to report vulnerabilities.
 
-## 🌐 Community
+## Community
 
-Share your builds with **#claudesandbox** on Twitter/X
+Share your builds with **#claudebox** on Twitter/X
 
-## 📄 License
+## License
 
 MIT

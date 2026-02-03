@@ -19,11 +19,11 @@ echo "=== Security Regression Tests ==="
 echo ""
 
 # These tests use the template directly with --dry-run to inspect the generated command
-TEMPLATE="$REPO_ROOT/scripts/claude-sandbox-template.sh"
+TEMPLATE="$REPO_ROOT/scripts/claudebox-template.sh"
 
 # Create a processed version of the template with placeholders replaced
 PROCESSED_TEMPLATE=$(mktemp)
-sed 's|PLACEHOLDER_IMAGE_NAME|claude-sandbox|g' \
+sed 's|PLACEHOLDER_IMAGE_NAME|claudebox|g' \
     "$TEMPLATE" > "$PROCESSED_TEMPLATE"
 chmod +x "$PROCESSED_TEMPLATE"
 
@@ -35,8 +35,8 @@ cleanup() {
 trap cleanup EXIT
 
 # Ensure the seccomp profile is installed for all tests
-mkdir -p ~/.claude-sandbox
-cp "$REPO_ROOT/scripts/seccomp.json" ~/.claude-sandbox/seccomp.json
+mkdir -p ~/.claudebox
+cp "$REPO_ROOT/scripts/seccomp.json" ~/.claudebox/seccomp.json
 
 # --- Test: Critical security flags are present ---
 echo "--- Critical Security Flags ---"
@@ -103,7 +103,7 @@ setup_test_dir
 git init -q
 
 # Create a config with ports
-cat > .claude-sandbox.json << 'EOF'
+cat > .claudebox.json << 'EOF'
 {
   "dev": {
     "ports": [
@@ -133,7 +133,7 @@ setup_test_dir
 git init -q
 
 # Test that "host" network mode is rejected (would bypass network isolation)
-cat > .claude-sandbox.json << 'EOF'
+cat > .claudebox.json << 'EOF'
 {
   "dev": {
     "network": "host"
@@ -145,7 +145,7 @@ output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
 assert_contains "$output" "Unsupported network mode" "host network rejected"
 
 # Test that only bridge and none are allowed
-cat > .claude-sandbox.json << 'EOF'
+cat > .claudebox.json << 'EOF'
 {
   "dev": {
     "network": "bridge"
@@ -157,7 +157,7 @@ output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
 # Should not error for bridge
 assert_not_contains "$output" "Unsupported network mode" "bridge network allowed"
 
-cat > .claude-sandbox.json << 'EOF'
+cat > .claudebox.json << 'EOF'
 {
   "dev": {
     "network": "none"
@@ -178,11 +178,11 @@ require_docker
 require_image
 
 # Verify the container runs as UID 1000 (non-root)
-uid=$(docker run --rm --entrypoint /bin/bash claude-sandbox -c "id -u")
+uid=$(docker run --rm --entrypoint /bin/bash claudebox -c "id -u")
 assert_equals "$uid" "1000" "container runs as UID 1000"
 
 # Verify the user is not root
-username=$(docker run --rm --entrypoint /bin/bash claude-sandbox -c "whoami")
+username=$(docker run --rm --entrypoint /bin/bash claudebox -c "whoami")
 assert_not_contains "$username" "root" "container user is not root"
 
 # --- Test: Read-only mode adds protection ---

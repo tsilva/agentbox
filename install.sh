@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# claude-sandbox one-liner installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/tsilva/claude-sandbox/main/install.sh | bash
+# claudebox one-liner installer
+# Usage: curl -fsSL https://raw.githubusercontent.com/tsilva/claudebox/main/install.sh | bash
 
-REPO_URL="https://github.com/tsilva/claude-sandbox.git"
-INSTALL_DIR="${HOME}/.claude-sandbox/repo"
+REPO_URL="https://github.com/tsilva/claudebox.git"
+INSTALL_DIR="${HOME}/.claudebox/repo"
 
-echo "Installing claude-sandbox..."
+echo "Installing claudebox..."
 
 # Clone or update repo
 if [[ -d "$INSTALL_DIR" ]]; then
@@ -21,10 +21,10 @@ fi
 
 # Run the installer
 cd "$INSTALL_DIR"
-./claude-sandbox-dev.sh install
+./claudebox-dev.sh install
 
 echo ""
 echo "Installation complete!"
 echo "Run 'source ~/.zshrc' (or ~/.bashrc), then:"
-echo "  claude-sandbox login    # authenticate once"
-echo "  claude-sandbox          # start coding"
+echo "  claudebox login    # authenticate once"
+echo "  claudebox          # start coding"

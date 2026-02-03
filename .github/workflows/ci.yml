@@ -67,12 +67,12 @@ jobs:
       # Run shellcheck against all shell scripts in the project.
       # The glob patterns (*.sh) expand to match all .sh files in each directory:
       #   - scripts/*.sh        — shared library and template scripts
-      #   - claude-sandbox-dev.sh — the main dev CLI script
+      #   - claudebox-dev.sh — the main dev CLI script
       #   - tests/*.sh          — test scripts
       # If any script has issues, shellcheck exits with a non-zero code,
       # which causes this step (and the entire job) to fail.
       - name: Run shellcheck
-        run: shellcheck scripts/*.sh claude-sandbox-dev.sh tests/*.sh tests/lib/*.sh
+        run: shellcheck scripts/*.sh claudebox-dev.sh tests/*.sh tests/lib/*.sh
 
   # ---------------------------------------------------------------------------
   # Job 2: build
@@ -88,11 +88,11 @@ jobs:
       - uses: actions/checkout@v6
 
       # Build the Docker image from the Dockerfile in the current directory (".").
-      # "-t claude-sandbox" tags (names) the resulting image so we can
+      # "-t claudebox" tags (names) the resulting image so we can
       # reference it by name in later steps. "docker build" reads the
       # Dockerfile, executes each instruction, and produces a container image.
       - name: Build Docker image
-        run: docker build -t claude-sandbox .
+        run: docker build -t claudebox .
 
       # Start a container from the image and pass "--version" as an argument.
       # "--rm" automatically removes the container after it exits (cleanup).
@@ -101,7 +101,7 @@ jobs:
       # authenticated, but we still want to verify the binary is callable.
       # The purpose is to confirm the binary exists and can start at all.
       - name: Verify Claude binary accessible
-        run: docker run --rm claude-sandbox --version || true
+        run: docker run --rm claudebox --version || true
 
 
   # ---------------------------------------------------------------------------
@@ -129,7 +129,7 @@ jobs:
       # returns non-zero, which causes the step and job to fail.
       - name: Bash syntax check
         run: |
-          for f in scripts/*.sh claude-sandbox-dev.sh tests/*.sh tests/lib/*.sh; do
+          for f in scripts/*.sh claudebox-dev.sh tests/*.sh tests/lib/*.sh; do
             echo "Checking $f..."
             bash -n "$f"
           done
@@ -150,7 +150,7 @@ jobs:
 
       # Build the Docker image (needed for isolation tests)
       - name: Build Docker image
-        run: docker build -t claude-sandbox .
+        run: docker build -t claudebox .
 
       # Install jq for JSON parsing in tests
       - name: Install jq

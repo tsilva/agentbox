@@ -2,7 +2,7 @@
 
 ## Isolation Model
 
-claude-sandbox runs Claude Code inside a Docker container with:
+claudebox runs Claude Code inside a Docker container with:
 
 - `--cap-drop=ALL` — all Linux capabilities are dropped
 - `--security-opt=no-new-privileges` — prevents privilege escalation
@@ -40,18 +40,18 @@ When running from a directory that is not a git repository, a warning is display
 
 ## Per-Project Dockerfile
 
-If a `.claude-sandbox.Dockerfile` exists in the project root, it is automatically built and used as the container image. This file runs with full Docker build capabilities and constitutes an **explicit trust boundary** — it can install packages, run arbitrary commands at build time, and modify the container environment. Only use projects with `.claude-sandbox.Dockerfile` from sources you trust.
+If a `.claudebox.Dockerfile` exists in the project root, it is automatically built and used as the container image. This file runs with full Docker build capabilities and constitutes an **explicit trust boundary** — it can install packages, run arbitrary commands at build time, and modify the container environment. Only use projects with `.claudebox.Dockerfile` from sources you trust.
 
 ## Recommendations
 
 - Avoid mounting sensitive directories (SSH keys, credentials, etc.)
 - Use read-only mounts where possible
-- Review `.claude-sandbox.json` profiles before use
+- Review `.claudebox.json` profiles before use
 - Consider network isolation for sensitive workloads (future feature)
 
 ## Reporting Vulnerabilities
 
 Please report security vulnerabilities by opening a GitHub issue at:
-https://github.com/tsilva/claude-sandbox/issues
+https://github.com/tsilva/claudebox/issues
 
 For sensitive issues, contact the maintainer directly via GitHub.

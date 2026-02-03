@@ -1,5 +1,5 @@
 logs
-.claude-sandbox.json
+.claudebox.json
 # Sensitive data - credentials and secrets
 .env
 .env.*

@@ -20,11 +20,11 @@ echo ""
 require_jq
 
 # Use the template directly with --dry-run
-TEMPLATE="$REPO_ROOT/scripts/claude-sandbox-template.sh"
+TEMPLATE="$REPO_ROOT/scripts/claudebox-template.sh"
 
 # Create a processed version of the template
 PROCESSED_TEMPLATE=$(mktemp)
-sed 's|PLACEHOLDER_IMAGE_NAME|claude-sandbox|g' \
+sed 's|PLACEHOLDER_IMAGE_NAME|claudebox|g' \
     "$TEMPLATE" > "$PROCESSED_TEMPLATE"
 chmod +x "$PROCESSED_TEMPLATE"
 
@@ -42,27 +42,27 @@ setup_test_dir
 git init -q
 
 # Test: Array at root level should be rejected
-echo '["not","an","object"]' > .claude-sandbox.json
+echo '["not","an","object"]' > .claudebox.json
 output=$("$PROCESSED_TEMPLATE" --dry-run 2>&1 || true)
-assert_contains "$output" "Invalid .claude-sandbox.json" "JSON array rejected"
+assert_contains "$output" "Invalid .claudebox.json" "JSON array rejected"
 
 # Test: String at root level should be rejected
-echo '"just a string"' > .claude-sandbox.json
+echo '"just a string"' > .claudebox.json
 output=$("$PROCESSED_TEMPLATE" --dry-run 2>&1 || true)
-assert_contains "$output" "Invalid .claude-sandbox.json" "JSON string rejected"
+assert_contains "$output" "Invalid .claudebox.json" "JSON string rejected"
 
 # Test: Number at root level should be rejected
-echo '42' > .claude-sandbox.json
+echo '42' > .claudebox.json
 output=$("$PROCESSED_TEMPLATE" --dry-run 2>&1 || true)
-assert_contains "$output" "Invalid .claude-sandbox.json" "JSON number rejected"
+assert_contains "$output" "Invalid .claudebox.json" "JSON number rejected"
 
 # Test: Invalid JSON should be rejected
-echo '{invalid json}' > .claude-sandbox.json
+echo '{invalid json}' > .claudebox.json
 output=$("$PROCESSED_TEMPLATE" --dry-run 2>&1 || true)
-assert_contains "$output" "Invalid .claude-sandbox.json" "malformed JSON rejected"
+assert_contains "$output" "Invalid .claudebox.json" "malformed JSON rejected"
 
 # Test: Empty object is valid (no profiles)
-echo '{}' > .claude-sandbox.json
+echo '{}' > .claudebox.json
 output=$("$PROCESSED_TEMPLATE" --dry-run 2>&1)
 # Should not contain any error about invalid JSON
 assert_not_contains "$output" "Invalid" "empty object accepted"
@@ -78,12 +78,12 @@ git init -q
 
 # Test: Control characters in path should be rejected
 # Using printf to actually include a tab character
-printf '{"dev":{"mounts":[{"path":"/tmp/test\tpath"}]}}' > .claude-sandbox.json
+printf '{"dev":{"mounts":[{"path":"/tmp/test\tpath"}]}}' > .claudebox.json
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
 assert_contains "$output" "invalid characters" "control chars in path rejected"
 
 # Test: Multiple colons in path should be rejected (Docker mount syntax ambiguity)
-cat > .claude-sandbox.json << 'EOF'
+cat > .claudebox.json << 'EOF'
 {"dev":{"mounts":[{"path":"/tmp/a:b:c"}]}}
 EOF
 # First create the path so it passes the existence check
@@ -93,14 +93,14 @@ assert_contains "$output" "containing ':'" "colon in path warned"
 rmdir "/tmp/a:b:c" 2>/dev/null || true
 
 # Test: Path traversal should be rejected
-cat > .claude-sandbox.json << 'EOF'
+cat > .claudebox.json << 'EOF'
 {"dev":{"mounts":[{"path":"/tmp/test/../../../etc"}]}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
 assert_contains "$output" "path traversal" "path traversal rejected"
 
 # Test: Non-existent path should warn
-cat > .claude-sandbox.json << 'EOF'
+cat > .claudebox.json << 'EOF'
 {"dev":{"mounts":[{"path":"/nonexistent/path/that/does/not/exist"}]}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
@@ -116,21 +116,21 @@ setup_test_dir
 git init -q
 
 # Test: Port above 65535 should be rejected
-cat > .claude-sandbox.json << 'EOF'
+cat > .claudebox.json << 'EOF'
 {"dev":{"ports":[{"host":65536,"container":80}]}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
 assert_contains "$output" "out of range" "port > 65535 rejected"
 
 # Test: Port 0 should be rejected
-cat > .claude-sandbox.json << 'EOF'
+cat > .claudebox.json << 'EOF'
 {"dev":{"ports":[{"host":0,"container":80}]}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
 assert_contains "$output" "out of range" "port 0 rejected"
 
 # Test: Negative port should be rejected (jq will output negative number)
-cat > .claude-sandbox.json << 'EOF'
+cat > .claudebox.json << 'EOF'
 {"dev":{"ports":[{"host":-1,"container":80}]}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
@@ -138,14 +138,14 @@ output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
 assert_contains "$output" "Invalid port" "negative port rejected"
 
 # Test: Non-numeric port should be rejected
-cat > .claude-sandbox.json << 'EOF'
+cat > .claudebox.json << 'EOF'
 {"dev":{"ports":[{"host":"abc","container":80}]}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
 assert_contains "$output" "Invalid port" "non-numeric port rejected"
 
 # Test: Valid ports should work
-cat > .claude-sandbox.json << 'EOF'
+cat > .claudebox.json << 'EOF'
 {"dev":{"ports":[{"host":8080,"container":80}]}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
@@ -161,34 +161,34 @@ setup_test_dir
 git init -q
 
 # Test: "host" network mode should be rejected (bypasses isolation)
-cat > .claude-sandbox.json << 'EOF'
+cat > .claudebox.json << 'EOF'
 {"dev":{"network":"host"}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
 assert_contains "$output" "Unsupported network mode" "host network rejected"
 
 # Test: Injection attempt via network mode
-cat > .claude-sandbox.json << 'EOF'
+cat > .claudebox.json << 'EOF'
 {"dev":{"network":"bridge; rm -rf /"}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
 assert_contains "$output" "Unsupported" "network injection blocked"
 
 # Test: macvlan network mode should be rejected
-cat > .claude-sandbox.json << 'EOF'
+cat > .claudebox.json << 'EOF'
 {"dev":{"network":"macvlan"}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
 assert_contains "$output" "Unsupported network mode" "macvlan network rejected"
 
 # Test: Valid network modes
-cat > .claude-sandbox.json << 'EOF'
+cat > .claudebox.json << 'EOF'
 {"dev":{"network":"bridge"}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
 assert_not_contains "$output" "Unsupported" "bridge network accepted"
 
-cat > .claude-sandbox.json << 'EOF'
+cat > .claudebox.json << 'EOF'
 {"dev":{"network":"none"}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
@@ -205,14 +205,14 @@ setup_test_dir
 git init -q
 
 # Test: Non-existent profile should error
-cat > .claude-sandbox.json << 'EOF'
+cat > .claudebox.json << 'EOF'
 {"dev":{}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile nonexistent 2>&1 || true)
 assert_contains "$output" "not found" "non-existent profile rejected"
 
 # Test: Empty string profile name should work (auto-select)
-cat > .claude-sandbox.json << 'EOF'
+cat > .claudebox.json << 'EOF'
 {"dev":{}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
@@ -228,7 +228,7 @@ setup_test_dir
 git init -q
 
 # Test: Valid resource limits should be passed through
-cat > .claude-sandbox.json << 'EOF'
+cat > .claudebox.json << 'EOF'
 {
   "dev": {
     "cpu": "2",
@@ -255,7 +255,7 @@ git init -q
 mkdir -p /tmp/test-mount-rw
 mkdir -p /tmp/test-mount-ro
 
-cat > .claude-sandbox.json << 'EOF'
+cat > .claudebox.json << 'EOF'
 {
   "dev": {
     "mounts": [

@@ -1,8 +1,8 @@
 #!/bin/bash
 #
-# claude-sandbox-dev.sh - Development CLI for claude-sandbox
+# claudebox-dev.sh - Development CLI for claudebox
 #
-# Usage: ./claude-sandbox-dev.sh <command>
+# Usage: ./claudebox-dev.sh <command>
 #
 # Commands:
 #   build      Build the Docker image
@@ -18,9 +18,9 @@ set -euo pipefail
 # Resolve the repo root from this script's location (works even if invoked via symlink)
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Docker image name used for building and running containers
-IMAGE_NAME="claude-sandbox"
+IMAGE_NAME="claudebox"
 # Name of the installed CLI command the user will invoke
-SCRIPT_NAME="claude-sandbox"
+SCRIPT_NAME="claudebox"
 
 # Detect the user's shell RC file for PATH configuration.
 # Returns the path to the first found RC file, defaulting to .zshrc (macOS default).
@@ -68,7 +68,7 @@ do_build() {
   echo "Run '$SCRIPT_NAME' from any directory to start."
 }
 
-# Build the image and install the standalone CLI script to ~/.claude-sandbox/bin/
+# Build the image and install the standalone CLI script to ~/.claudebox/bin/
 do_install() {
   # Build the image first (calls check_runtime internally)
   do_build
@@ -77,20 +77,20 @@ do_install() {
   shell_rc="$(detect_shell_rc)"
 
   # Create the bin directory and generate the standalone script from the template
-  local bin_dir="$HOME/.claude-sandbox/bin"
+  local bin_dir="$HOME/.claudebox/bin"
   local script_path="$bin_dir/$SCRIPT_NAME"
   mkdir -p "$bin_dir"
 
   # Replace placeholders in the template with the actual image name
   sed "s|PLACEHOLDER_IMAGE_NAME|$IMAGE_NAME|g" \
-    "${REPO_ROOT}/scripts/claude-sandbox-template.sh" > "$script_path"
+    "${REPO_ROOT}/scripts/claudebox-template.sh" > "$script_path"
   # Make the generated script executable
   chmod +x "$script_path"
   echo "Installed $script_path"
 
   # Copy the seccomp profile to the install directory
-  cp "${REPO_ROOT}/scripts/seccomp.json" "$HOME/.claude-sandbox/seccomp.json"
-  echo "Installed $HOME/.claude-sandbox/seccomp.json"
+  cp "${REPO_ROOT}/scripts/seccomp.json" "$HOME/.claudebox/seccomp.json"
+  echo "Installed $HOME/.claudebox/seccomp.json"
 
   # Create alias symlink
   ln -sf "$SCRIPT_NAME" "$bin_dir/claudes"
@@ -98,11 +98,11 @@ do_install() {
 
   # Add the bin directory to PATH in the user's shell config (idempotent)
   # shellcheck disable=SC2016
-  local path_line='export PATH="$HOME/.claude-sandbox/bin:$PATH"'
-  if ! grep -qF '.claude-sandbox/bin' "$shell_rc" 2>/dev/null; then
+  local path_line='export PATH="$HOME/.claudebox/bin:$PATH"'
+  if ! grep -qF '.claudebox/bin' "$shell_rc" 2>/dev/null; then
     {
       echo ""
-      echo "# claude-sandbox"
+      echo "# claudebox"
       echo "$path_line"
     } >> "$shell_rc"
     echo "Added PATH entry to $shell_rc"
@@ -142,8 +142,8 @@ do_uninstall() {
   echo "Removing $IMAGE_NAME image..."
   docker image rm "$IMAGE_NAME" 2>/dev/null || echo "Image not found, skipping"
 
-  # Remove the standalone CLI script from ~/.claude-sandbox/bin/
-  local script_path="$HOME/.claude-sandbox/bin/$SCRIPT_NAME"
+  # Remove the standalone CLI script from ~/.claudebox/bin/
+  local script_path="$HOME/.claudebox/bin/$SCRIPT_NAME"
   if [ -f "$script_path" ]; then
     rm -f "$script_path"
     echo "Removed $script_path"
@@ -152,14 +152,14 @@ do_uninstall() {
   fi
 
   # Remove alias symlink
-  local alias_path="$HOME/.claude-sandbox/bin/claudes"
+  local alias_path="$HOME/.claudebox/bin/claudes"
   if [ -L "$alias_path" ] || [ -f "$alias_path" ]; then
     rm -f "$alias_path"
     echo "Removed $alias_path"
   fi
 
   # Remove seccomp profile
-  local seccomp_path="$HOME/.claude-sandbox/seccomp.json"
+  local seccomp_path="$HOME/.claudebox/seccomp.json"
   if [ -f "$seccomp_path" ]; then
     rm -f "$seccomp_path"
     echo "Removed seccomp profile"
@@ -169,10 +169,10 @@ do_uninstall() {
   shell_rc="$(detect_shell_rc)"
 
   # Remove the PATH entry and comment block from the shell config
-  if grep -qF '.claude-sandbox/bin' "$shell_rc" 2>/dev/null; then
+  if grep -qF '.claudebox/bin' "$shell_rc" 2>/dev/null; then
     echo "Removing PATH entry from $shell_rc..."
-    # Delete both the "# claude-sandbox" comment line and the PATH export line
-    sed -i.bak '/^# claude-sandbox$/d;/\.claude-sandbox\/bin/d' "$shell_rc"
+    # Delete both the "# claudebox" comment line and the PATH export line
+    sed -i.bak '/^# claudebox$/d;/\.claudebox\/bin/d' "$shell_rc"
     # Clean up the backup file created by sed -i
     rm -f "$shell_rc.bak"
     echo "PATH entry removed."
@@ -186,7 +186,7 @@ do_uninstall() {
   echo "Run: source $shell_rc"
 }
 
-# Stop all running containers spawned from the claude-sandbox image
+# Stop all running containers spawned from the claudebox image
 do_kill_containers() {
   # Ensure Docker is available to query/stop containers
   check_runtime

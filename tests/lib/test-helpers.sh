@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# test-helpers.sh - Shared test utilities for claude-sandbox tests
+# test-helpers.sh - Shared test utilities for claudebox tests
 # =============================================================================
 
 # Test counters
@@ -134,11 +134,11 @@ require_docker() {
   fi
 }
 
-# Check if the claude-sandbox image exists
+# Check if the claudebox image exists
 require_image() {
-  if ! docker image inspect claude-sandbox &>/dev/null; then
-    echo "SKIP: claude-sandbox image not built"
-    echo "Run: docker build -t claude-sandbox ."
+  if ! docker image inspect claudebox &>/dev/null; then
+    echo "SKIP: claudebox image not built"
+    echo "Run: docker build -t claudebox ."
     exit 0
   fi
 }

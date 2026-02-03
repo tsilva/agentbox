@@ -4,17 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-claude-sandbox is a tool that runs Claude Code with full autonomy (`--dangerously-skip-permissions`) inside an isolated Docker container.
+claudebox is a tool that runs Claude Code with full autonomy (`--dangerously-skip-permissions`) inside an isolated Docker container.
 
 ## Directory Structure
 
 ```
-claude-sandbox/
+claudebox/
 ├── Dockerfile              # OCI-compatible image definition
 ├── .dockerignore           # Files excluded from build context
-├── claude-sandbox-dev.sh   # Dev CLI (build/install/uninstall/kill/update)
+├── claudebox-dev.sh        # Dev CLI (build/install/uninstall/kill/update)
 ├── scripts/
-│   ├── claude-sandbox-template.sh  # Standalone script template
+│   ├── claudebox-template.sh   # Standalone script template
 │   └── install-claude-code.sh  # Claude Code installer
 ├── tests/
 │   └── smoke-test.sh       # Smoke tests
@@ -29,48 +29,48 @@ claude-sandbox/
 
 ```bash
 # Build/rebuild the container image
-./claude-sandbox-dev.sh build
+./claudebox-dev.sh build
 
-# Install (builds image + installs script to ~/.claude-sandbox/bin/)
-./claude-sandbox-dev.sh install
+# Install (builds image + installs script to ~/.claudebox/bin/)
+./claudebox-dev.sh install
 
 # Remove the container image
-./claude-sandbox-dev.sh uninstall
+./claudebox-dev.sh uninstall
 
 # Force stop running containers
-./claude-sandbox-dev.sh kill
+./claudebox-dev.sh kill
 
 # Pull latest + rebuild
-./claude-sandbox-dev.sh update
+./claudebox-dev.sh update
 ```
 
 ## Usage
 
-After installation, the `claude-sandbox` command accepts the following arguments:
+After installation, the `claudebox` command accepts the following arguments:
 
 ```bash
 # Run Claude Code in the sandbox (interactive mode)
-claude-sandbox
+claudebox
 
 # Pass arguments to Claude (e.g., login)
-claude-sandbox login
+claudebox login
 
 # Non-interactive print mode: run a prompt and exit
-claude-sandbox -p "explain this code"
+claudebox -p "explain this code"
 
 # Pipe input to print mode
-cat file.txt | claude-sandbox -p "summarize this"
+cat file.txt | claudebox -p "summarize this"
 
 # Drop into a bash shell to inspect the sandbox environment
-claude-sandbox shell
+claudebox shell
 
 # Mount all host paths as read-only (workspace, config, extra mounts)
-claude-sandbox --readonly
+claudebox --readonly
 ```
 
 ## Per-Project Configuration
 
-Projects can define named profiles via `.claude-sandbox.json` in the project root:
+Projects can define named profiles via `.claudebox.json` in the project root:
 
 ```json
 {
@@ -98,7 +98,7 @@ Projects can define named profiles via `.claude-sandbox.json` in the project roo
 - `ports[].host` (required): Host port number (1-65535)
 - `ports[].container` (required): Container port number (1-65535)
 - `network` (optional): Docker network mode — `"bridge"` (default) or `"none"` for full isolation
-- `audit_log` (optional): If `true`, enables session audit logging to `~/.claude-sandbox/logs/` (default: `false`)
+- `audit_log` (optional): If `true`, enables session audit logging to `~/.claudebox/logs/` (default: `false`)
 - `cpu` (optional): CPU limit string (e.g., `"4"`) — maps to `docker --cpus`
 - `memory` (optional): Memory limit string (e.g., `"8g"`) — maps to `docker --memory`
 - `pids_limit` (optional): Max number of processes (e.g., `256`) — maps to `docker --pids-limit`
@@ -119,11 +119,11 @@ Projects can define named profiles via `.claude-sandbox.json` in the project roo
 
 **Usage:**
 ```bash
-claude-sandbox --profile dev      # Use specific profile
-claude-sandbox -P prod            # Short form (uppercase -P)
-claude-sandbox                    # Interactive prompt
-claude-sandbox --profile dev login  # Profile + args to Claude
-claude-sandbox -P dev -p "run tests"  # Profile + print mode
+claudebox --profile dev      # Use specific profile
+claudebox -P prod            # Short form (uppercase -P)
+claudebox                    # Interactive prompt
+claudebox --profile dev login  # Profile + args to Claude
+claudebox -P dev -p "run tests"  # Profile + print mode
 ```
 
 ## Architecture
@@ -131,16 +131,16 @@ claude-sandbox -P dev -p "run tests"  # Profile + print mode
 The project consists of shell scripts that wrap Docker:
 
 - **Dockerfile** - Debian slim image with Claude Code binary installed to `/opt/claude-code/`, entry point runs `claude --dangerously-skip-permissions`
-- **claude-sandbox-dev.sh** - Self-contained dev CLI with build, install, uninstall, and kill functions
-- **scripts/claude-sandbox-template.sh** - Template for the installed standalone script
+- **claudebox-dev.sh** - Self-contained dev CLI with build, install, uninstall, and kill functions
+- **scripts/claudebox-template.sh** - Template for the installed standalone script
 
 ### Key Implementation Details
 
 1. **Binary location**: Claude Code is installed to `/opt/claude-code/` (not `~/.claude/`) to avoid collision with the config volume mount at `~/.claude/`. A symlink at `~/.local/bin/claude` points to the binary to satisfy Claude Code's native install detection.
 
 2. **Persisted state**: Two paths are mounted from the host:
-   - `~/.claude-sandbox/claude-config` → `/home/claude/.claude` (credentials, cache, settings)
-   - `~/.claude-sandbox/.claude.json` → `/home/claude/.claude.json` (session state)
+   - `~/.claudebox/claude-config` → `/home/claude/.claude` (credentials, cache, settings)
+   - `~/.claudebox/.claude.json` → `/home/claude/.claude.json` (session state)
 
 3. **Environment variables** (set in Dockerfile):
    - `NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt` - Uses system CA certs (Claude Code's bundled certs may be incomplete)
