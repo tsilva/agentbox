@@ -26,6 +26,7 @@ SECCOMP_PROFILE="$HOME/.claudebox/seccomp.json"
 # claude-config is mounted into the container as ~/.claude/ for credentials.
 mkdir -p ~/.claudebox/claude-config
 mkdir -p ~/.claudebox/claude-dotconfig
+mkdir -p ~/.claudebox/plugins
 # Initialize .claude.json if missing or empty (Claude Code expects valid JSON)
 [ -s ~/.claudebox/.claude.json ] || echo '{}' > ~/.claudebox/.claude.json
 
@@ -342,8 +343,8 @@ docker_cmd=(
   -v ~/.claudebox/claude-config:/home/claude/.claude${ro_suffix}
   # Persist Claude Code session state (conversation history, etc.)
   -v ~/.claudebox/.claude.json:/home/claude/.claude.json${ro_suffix}
-  # Mount marketplace plugins read-only so Claude can use installed plugins
-  -v ~/.claude/plugins/marketplaces:/home/claude/.claude/plugins/marketplaces:ro
+  # Mount sandbox plugins directory (writable, isolated from host ~/.claude/plugins/)
+  -v ~/.claudebox/plugins:/home/claude/.claude/plugins
   # Add readonly mode tmpfs overlay (plans directory) when enabled
   ${readonly_args[@]+"${readonly_args[@]}"}
   # Add any profile-configured extra mounts, ports, and entrypoint overrides
