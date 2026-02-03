@@ -52,10 +52,10 @@ jobs:
     # Each step runs sequentially (one after another) in the same VM.
     steps:
       # "uses" runs a pre-built action from the GitHub Actions marketplace.
-      # actions/checkout@v4 clones your repository into the runner so
+      # actions/checkout@v6 clones your repository into the runner so
       # subsequent steps can access your code. Almost every workflow starts
       # with this step. "@v4" pins it to version 4 of the action.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # "name" is a human-readable label shown in the GitHub Actions UI.
       # "run" executes a shell command on the runner.
@@ -85,7 +85,7 @@ jobs:
     steps:
       # Clone the repo (same as above — each job gets its own fresh VM,
       # so every job needs its own checkout step).
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # Build the Docker image from the Dockerfile in the current directory (".").
       # "-t claude-sandbox" tags (names) the resulting image so we can
@@ -113,7 +113,7 @@ jobs:
   syntax:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # "bash -n" is bash's built-in syntax check mode. The "-n" flag tells
       # bash to read and parse the script but NOT execute it. If the script
@@ -146,7 +146,7 @@ jobs:
     # Run after build job to ensure image is buildable
     needs: build
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # Build the Docker image (needed for isolation tests)
       - name: Build Docker image
