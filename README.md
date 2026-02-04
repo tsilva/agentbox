@@ -1,13 +1,13 @@
 <div align="center">
   <img src="logo.png" alt="claudebox" width="512"/>
 
-  # claudebox
-
+  [![CI](https://img.shields.io/github/actions/workflow/status/tsilva/claudebox/ci.yml?branch=main&label=CI)](https://github.com/tsilva/claudebox/actions)
   [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
   [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
   [![GitHub last commit](https://img.shields.io/github/last-commit/tsilva/claudebox)](https://github.com/tsilva/claudebox/commits/main)
+  [![macOS](https://img.shields.io/badge/macOS-Supported-000000?logo=apple&logoColor=white)](https://github.com/tsilva/claudebox)
 
-  **Let AI code autonomously. Without fear.**
+  **🔒 Let AI code autonomously. Without fear.**
 
   > *"I gave Claude full autonomy and watched it refactor my codebase. My system? Untouched."*
 
@@ -26,30 +26,31 @@
 - [Requirements](#-requirements)
 - [Authentication](#-authentication)
 - [Usage](#-usage)
-- [Per-Project Configuration](#️-per-project-configuration)
+- [Per-Project Configuration](#%EF%B8%8F-per-project-configuration)
 - [Per-Project Dockerfile](#-per-project-dockerfile)
-- [Commands](#️-commands)
+- [Commands](#%EF%B8%8F-commands)
 - [How It Works](#-how-it-works)
 - [Sandbox Awareness](#-sandbox-awareness)
 - [Project Structure](#-project-structure)
+- [Resource Limits](#-resource-limits)
 - [Troubleshooting](#-troubleshooting)
 - [Notifications](#-notifications)
-- [Security](#-security)
+- [Security](#%EF%B8%8F-security)
 - [Community](#-community)
 - [License](#-license)
 
-## Features
+## ✨ Features
 
-- **Isolated execution** — Claude runs in a container with no access to your host filesystem (except mounted paths)
-- **Full autonomy** — No permission prompts; Claude can execute any command inside the sandbox
-- **Sandbox awareness** — Claude automatically knows its constraints (read-only paths, blocked directories, resource limits)
-- **Same-path mounting** — Your project directory is mounted at its actual path, so file paths work identically inside and outside the container
-- **Per-project configuration** — Define additional mounts and ports via `.claudebox.json` for data directories, output folders, and more
-- **Per-project Dockerfile** — Customize the container with project-specific dependencies using `.claudebox.Dockerfile`
-- **Plugin support** — Marketplace plugins from `~/.claude/plugins/marketplaces` are mounted read-only into the container
-- **Simple setup** — One install script adds a standalone command you can run from any project
+- **🔒 Isolated execution** — Claude runs in a container with no access to your host filesystem (except mounted paths)
+- **⚡ Full autonomy** — No permission prompts; Claude can execute any command inside the sandbox
+- **🧠 Sandbox awareness** — Claude automatically knows its constraints (read-only paths, blocked directories, resource limits)
+- **📁 Same-path mounting** — Your project directory is mounted at its actual path, so file paths work identically inside and outside the container
+- **⚙️ Per-project configuration** — Define additional mounts and ports via `.claudebox.json` for data directories, output folders, and more
+- **🐳 Per-project Dockerfile** — Customize the container with project-specific dependencies using `.claudebox.Dockerfile`
+- **🔌 Plugin support** — Marketplace plugins from `~/.claude/plugins/marketplaces` are mounted read-only into the container
+- **🚀 Simple setup** — One install script adds a standalone command you can run from any project
 
-## Why claudebox?
+## 🤔 Why claudebox?
 
 **The problem:** Claude Code with `--dangerously-skip-permissions` can modify any file on your system. One wrong command and your SSH keys, git config, or system files could be gone.
 
@@ -64,7 +65,7 @@
 
 **TL;DR:** Full AI autonomy, zero host risk.
 
-## Quick Start
+## 🚀 Quick Start
 
 **Option 1: One-liner install**
 ```bash
@@ -91,12 +92,12 @@ cd ~/my-project
 claudebox
 ```
 
-## Requirements
+## 📋 Requirements
 
 - [Docker Desktop](https://docs.docker.com/get-docker/) on macOS (Linux/WSL2 not yet supported)
 - **Optional:** `jq` for per-project configuration support (`brew install jq`)
 
-## Authentication
+## 🔑 Authentication
 
 claudebox uses your Claude Pro/Max subscription instead of API keys. On first use, authenticate via browser:
 
@@ -106,7 +107,7 @@ claudebox login
 
 This opens a browser window for OAuth authentication. Your credentials are stored in `~/.claudebox/` and persist across all container sessions — you only need to log in once.
 
-## Usage
+## 💻 Usage
 
 ```bash
 # Run Claude Code in the sandbox (interactive mode)
@@ -147,7 +148,7 @@ The `shell` argument is useful for debugging or exploring what tools and files a
 
 **Print mode** (`-p` / `--print`) runs non-interactively, executes the prompt, and exits. This is useful for scripting and automation.
 
-## Per-Project Configuration
+## ⚙️ Per-Project Configuration
 
 Create a `.claudebox.json` file in your project root to define named profiles with mounts and ports:
 
@@ -220,7 +221,7 @@ claudebox                 # Interactive prompt to select profile
 
 **Note:** Requires `jq` to be installed. If `jq` is missing or the config file is invalid, extra mounts and ports are skipped with a warning and the sandbox runs normally.
 
-## Per-Project Dockerfile
+## 🐳 Per-Project Dockerfile
 
 Place a `.claudebox.Dockerfile` in your project root to customize the container with project-specific dependencies. The file is a standard Dockerfile that builds on top of the base image:
 
@@ -233,7 +234,7 @@ RUN pip3 install pandas
 
 When present, a per-project image is automatically built before each run. This lets you pre-install tools, libraries, or system packages that your project needs without modifying the shared base image.
 
-## Commands
+## 🛠️ Commands
 
 | Command | Purpose |
 |---------|---------|
@@ -243,7 +244,7 @@ When present, a per-project image is automatically built before each run. This l
 | `./claudebox-dev.sh uninstall` | Remove the container image |
 | `./claudebox-dev.sh kill` | Force stop any running containers |
 
-## How It Works
+## 🔧 How It Works
 
 ```mermaid
 graph LR
@@ -260,7 +261,7 @@ graph LR
 5. Optional: `.claudebox.json` adds extra mounts for data directories
 6. Marketplace plugins from `~/.claude/plugins/marketplaces` are mounted read-only into the container
 
-## Sandbox Awareness
+## 🧠 Sandbox Awareness
 
 At container startup, claudebox generates a `CLAUDE.md` file at `~/.claude/CLAUDE.md` inside the container. Claude Code automatically loads this file, making the AI aware of its environment constraints:
 
@@ -271,7 +272,7 @@ At container startup, claudebox generates a `CLAUDE.md` file at `~/.claude/CLAUD
 
 This prevents Claude from attempting operations that would fail (like `git push` without credentials) and helps it work within the sandbox constraints.
 
-## Project Structure
+## 📁 Project Structure
 
 ```
 claudebox/
@@ -298,7 +299,7 @@ claudebox/
 └── README.md
 ```
 
-## Resource Limits
+## 📊 Resource Limits
 
 By default, containers run without resource limits. To restrict CPU, memory, or processes, add the fields to your `.claudebox.json` profile:
 
@@ -314,7 +315,7 @@ By default, containers run without resource limits. To restrict CPU, memory, or 
 }
 ```
 
-## Troubleshooting
+## 🔍 Troubleshooting
 
 ### Docker not running
 
@@ -375,20 +376,28 @@ lsof -i :3000  # Find what's using the port
 
 If builds or runs fail with out-of-memory errors, increase Docker Desktop's resource allocation in **Settings > Resources**.
 
-## Notifications
+## 🔔 Notifications
 
 For macOS desktop notifications when Claude is ready for input, install [claude-code-notify](https://github.com/tsilva/claude-code-notify) and enable sandbox support during its installation.
 
 The notification bridge uses TCP (`host.docker.internal:19223`) to relay messages from the container to the host, where `terminal-notifier` displays them.
 
-## Security
+## 🛡️ Security
 
 See [SECURITY.md](SECURITY.md) for details on the isolation model, what is and isn't protected, and how to report vulnerabilities.
 
-## Community
+## 🌍 Community
 
 Share your builds with **#claudebox** on Twitter/X
 
-## License
+---
+
+<div align="center">
+
+⭐ **If claudebox saved you from AI-induced system damage, consider starring the repo!**
+
+</div>
+
+## 📄 License
 
 MIT
