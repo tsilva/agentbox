@@ -40,6 +40,7 @@ fi
 # Arrays and variables for building the docker run command
 entrypoint_args=()     # Override entrypoint (used for "shell" command)
 extra_mounts=()        # Additional -v mounts from profile config
+extra_mounts_info=""   # Human-readable mount info for sandbox awareness
 extra_ports=()         # Additional -p ports from profile config
 workdir="$(pwd)"       # Mount the current directory as the working directory
 profile_name=""        # Selected profile from .claudebox.json
@@ -204,6 +205,12 @@ if [ -f ".claudebox.json" ]; then
         else
           # Valid mount — add to the docker run arguments
           extra_mounts+=(-v "$mount_spec")
+          # Build human-readable mount info for sandbox awareness
+          if [[ "$mount_spec" == *":ro" ]]; then
+            extra_mounts_info+="- \`$mount_path\` (read-only)"$'\n'
+          else
+            extra_mounts_info+="- \`$mount_path\` (read-write)"$'\n'
+          fi
         fi
       done < <(echo "$profile_config" | jq -r '.mounts[]')
 
@@ -341,6 +348,13 @@ docker_cmd=(
   ${resource_args[@]+"${resource_args[@]}"}
   # Apply network mode if non-default
   ${network_args[@]+"${network_args[@]}"}
+  # Pass profile context to container for sandbox awareness CLAUDE.md generation
+  -e "CLAUDEBOX_NETWORK_MODE=${network_mode:-bridge}"
+  -e "CLAUDEBOX_CPU_LIMIT=${profile_cpu:-}"
+  -e "CLAUDEBOX_MEMORY_LIMIT=${profile_memory:-}"
+  -e "CLAUDEBOX_PIDS_LIMIT=${profile_pids_limit:-}"
+  -e "CLAUDEBOX_EXTRA_MOUNTS=${extra_mounts_info:-}"
+  -e "CLAUDEBOX_READONLY=${readonly_mode:-false}"
   # Set the working directory inside the container to match the host
   --workdir "$workdir"
   # Mount the current project directory at the same path for path parity

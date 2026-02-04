@@ -30,6 +30,7 @@
 - [Per-Project Dockerfile](#-per-project-dockerfile)
 - [Commands](#️-commands)
 - [How It Works](#-how-it-works)
+- [Sandbox Awareness](#-sandbox-awareness)
 - [Project Structure](#-project-structure)
 - [Troubleshooting](#-troubleshooting)
 - [Notifications](#-notifications)
@@ -41,6 +42,7 @@
 
 - **Isolated execution** — Claude runs in a container with no access to your host filesystem (except mounted paths)
 - **Full autonomy** — No permission prompts; Claude can execute any command inside the sandbox
+- **Sandbox awareness** — Claude automatically knows its constraints (read-only paths, blocked directories, resource limits)
 - **Same-path mounting** — Your project directory is mounted at its actual path, so file paths work identically inside and outside the container
 - **Per-project configuration** — Define additional mounts and ports via `.claudebox.json` for data directories, output folders, and more
 - **Per-project Dockerfile** — Customize the container with project-specific dependencies using `.claudebox.Dockerfile`
@@ -257,6 +259,17 @@ graph LR
 4. All changes to the mounted directory are reflected in your project
 5. Optional: `.claudebox.json` adds extra mounts for data directories
 6. Marketplace plugins from `~/.claude/plugins/marketplaces` are mounted read-only into the container
+
+## Sandbox Awareness
+
+At container startup, claudebox generates a `CLAUDE.md` file at `~/.claude/CLAUDE.md` inside the container. Claude Code automatically loads this file, making the AI aware of its environment constraints:
+
+- **Filesystem restrictions** — Read-only root filesystem, writable locations (`/tmp`, `~/.cache`, etc.)
+- **Blocked paths** — No access to `~/.ssh`, `~/.aws`, `~/.gnupg`, and other sensitive directories
+- **Git restrictions** — `.git` directory is read-only; commits and pushes are blocked
+- **Profile settings** — Network mode, CPU/memory limits, extra mounts with access modes
+
+This prevents Claude from attempting operations that would fail (like `git push` without credentials) and helps it work within the sandbox constraints.
 
 ## Project Structure
 

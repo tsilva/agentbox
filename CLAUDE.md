@@ -148,6 +148,8 @@ The project consists of shell scripts that wrap Docker:
 
 4. **Container lifecycle**: Containers use `--rm` by default for zero overhead. Audit logging (named containers + log dump) is opt-in via `audit_log: true` in profile config.
 
+5. **Sandbox awareness**: At container startup, `entrypoint.sh` generates `/home/claude/.claude/CLAUDE.md` with sandbox constraints and profile settings. This file is automatically loaded by Claude Code, making the AI aware of filesystem restrictions, blocked paths, network mode, resource limits, and extra mounts.
+
 ## Requirements
 
 - [Docker Desktop](https://docs.docker.com/get-docker/) installed and running
