@@ -36,6 +36,7 @@
 - [Troubleshooting](#-troubleshooting)
 - [Notifications](#-notifications)
 - [Security](#%EF%B8%8F-security)
+- [Contributing](#-contributing)
 - [Community](#-community)
 - [License](#-license)
 
@@ -386,9 +387,15 @@ The notification bridge uses TCP (`host.docker.internal:19223`) to relay message
 
 See [SECURITY.md](SECURITY.md) for details on the isolation model, what is and isn't protected, and how to report vulnerabilities.
 
+## 🤝 Contributing
+
+Found a bug or have an idea? [Open an issue](https://github.com/tsilva/claudebox/issues) or submit a pull request.
+
 ## 🌍 Community
 
-Share your builds with **#claudebox** on Twitter/X
+- 💬 **Questions?** [Open a discussion](https://github.com/tsilva/claudebox/discussions)
+- 🐛 **Found a bug?** [File an issue](https://github.com/tsilva/claudebox/issues)
+- 🐦 **Share your builds** with **#claudebox** on Twitter/X
 
 ---
 
