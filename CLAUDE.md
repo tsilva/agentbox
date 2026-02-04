@@ -169,3 +169,7 @@ Desktop notifications are provided by [claude-code-notify](https://github.com/ts
 ## Documentation
 
 README.md must be kept up to date with any significant project changes.
+
+## Linting
+
+When adding new shell scripts, update `scripts/lint.sh` to include them.
