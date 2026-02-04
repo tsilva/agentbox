@@ -12,12 +12,20 @@ claudebox is a tool that runs Claude Code with full autonomy (`--dangerously-ski
 claudebox/
 ├── Dockerfile              # OCI-compatible image definition
 ├── .dockerignore           # Files excluded from build context
+├── entrypoint.sh           # Container entrypoint (sandbox awareness, venv activation)
+├── install.sh              # One-liner curl install script
 ├── claudebox-dev.sh        # Dev CLI (build/install/uninstall/kill/update)
 ├── scripts/
 │   ├── claudebox-template.sh   # Standalone script template
-│   └── install-claude-code.sh  # Claude Code installer
+│   ├── install-claude-code.sh  # Claude Code installer
+│   └── seccomp.json            # Syscall filtering profile
 ├── tests/
-│   └── smoke-test.sh       # Smoke tests
+│   ├── smoke-test.sh           # Basic functionality tests
+│   ├── isolation-test.sh       # Filesystem isolation tests
+│   ├── security-regression.sh  # Security constraint tests
+│   ├── validation-test.sh      # Config validation tests
+│   ├── golden/                 # Expected output fixtures
+│   └── lib/                    # Test utilities
 ├── .github/workflows/
 │   └── ci.yml              # Shellcheck + Docker build CI
 ├── SECURITY.md
