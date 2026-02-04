@@ -405,7 +405,8 @@ docker_cmd=(
   # Persist Claude Code credentials and config across sessions
   -v "$HOME/.claudebox/claude-config:/home/claude/.claude${ro_suffix}"
   # Persist Claude Code session state (conversation history, etc.)
-  -v "$HOME/.claudebox/.claude.json:/home/claude/.claude.json${ro_suffix}"
+  # NOTE: Always writable - session state must persist even in readonly mode
+  -v "$HOME/.claudebox/.claude.json:/home/claude/.claude.json"
   # Mount sandbox plugins directory (writable, isolated from host ~/.claude/plugins/)
   -v ~/.claudebox/plugins:/home/claude/.claude/plugins
   # Add readonly mode tmpfs overlay (plans directory) when enabled
