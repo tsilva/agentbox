@@ -27,11 +27,21 @@ SECCOMP_PROFILE="$HOME/.claudebox/seccomp.json"
 mkdir -p ~/.claudebox/claude-config
 mkdir -p ~/.claudebox/claude-dotconfig
 mkdir -p ~/.claudebox/plugins
-# Seed sandbox plugins from host on first run (copies marketplace repos only, not metadata)
-# Metadata files (known_marketplaces.json, etc.) contain host paths that won't work in the
-# container, so we let Claude Code recreate them with correct container paths.
+# Seed sandbox plugins from host on first run
 if [ -d ~/.claude/plugins/marketplaces ] && [ ! -d ~/.claudebox/plugins/marketplaces ]; then
   cp -R ~/.claude/plugins/marketplaces ~/.claudebox/plugins/ 2>/dev/null || true
+fi
+# Copy and patch metadata files (fix host paths → container paths)
+# These files contain absolute paths that need to be rewritten for the container
+for metadata_file in known_marketplaces.json installed_plugins.json; do
+  if [ -f ~/.claude/plugins/"$metadata_file" ] && [ ! -f ~/.claudebox/plugins/"$metadata_file" ]; then
+    # Copy and replace $HOME path with container home
+    sed "s|$HOME|/home/claude|g" ~/.claude/plugins/"$metadata_file" > ~/.claudebox/plugins/"$metadata_file" 2>/dev/null || true
+  fi
+done
+# Copy cache directory if it doesn't exist
+if [ -d ~/.claude/plugins/cache ] && [ ! -d ~/.claudebox/plugins/cache ]; then
+  cp -R ~/.claude/plugins/cache ~/.claudebox/plugins/ 2>/dev/null || true
 fi
 # Initialize .claude.json if missing or empty (Claude Code expects valid JSON)
 [ -s ~/.claudebox/.claude.json ] || echo '{}' > ~/.claudebox/.claude.json
