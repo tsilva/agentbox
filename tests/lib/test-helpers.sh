@@ -37,7 +37,7 @@ assert_contains() {
   local expected="$2"
   local name="${3:-contains '$expected'}"
 
-  if echo "$output" | grep -qF "$expected"; then
+  if echo "$output" | grep -qF -- "$expected"; then
     pass "$name"
   else
     fail "$name"
@@ -53,7 +53,7 @@ assert_not_contains() {
   local unexpected="$2"
   local name="${3:-not contains '$unexpected'}"
 
-  if ! echo "$output" | grep -qF "$unexpected"; then
+  if ! echo "$output" | grep -qF -- "$unexpected"; then
     pass "$name"
   else
     fail "$name"
@@ -68,7 +68,7 @@ assert_matches() {
   local pattern="$2"
   local name="${3:-matches '$pattern'}"
 
-  if echo "$output" | grep -qE "$pattern"; then
+  if echo "$output" | grep -qE -- "$pattern"; then
     pass "$name"
   else
     fail "$name"
