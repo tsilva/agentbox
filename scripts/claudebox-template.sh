@@ -27,24 +27,57 @@ SECCOMP_PROFILE="$HOME/.claudebox/seccomp.json"
 mkdir -p ~/.claudebox/claude-config
 mkdir -p ~/.claudebox/claude-dotconfig
 mkdir -p ~/.claudebox/plugins
-# Seed sandbox plugins from host on first run
-if [ -d ~/.claude/plugins/marketplaces ] && [ ! -d ~/.claudebox/plugins/marketplaces ]; then
-  cp -R ~/.claude/plugins/marketplaces ~/.claudebox/plugins/ 2>/dev/null || true
+
+# Sync sandbox plugins from host (always sync to keep in sync with host state)
+# Use rsync if available for efficient incremental sync, fall back to cp
+if [ -d ~/.claude/plugins/marketplaces ]; then
+  if command -v rsync &>/dev/null; then
+    rsync -a --delete ~/.claude/plugins/marketplaces/ ~/.claudebox/plugins/marketplaces/ 2>/dev/null || true
+  else
+    rm -rf ~/.claudebox/plugins/marketplaces 2>/dev/null || true
+    cp -R ~/.claude/plugins/marketplaces ~/.claudebox/plugins/ 2>/dev/null || true
+  fi
 fi
-# Copy and patch metadata files (fix host paths → container paths)
-# These files contain absolute paths that need to be rewritten for the container
+# Sync cache directory (contains installed plugin files)
+if [ -d ~/.claude/plugins/cache ]; then
+  if command -v rsync &>/dev/null; then
+    rsync -a --delete ~/.claude/plugins/cache/ ~/.claudebox/plugins/cache/ 2>/dev/null || true
+  else
+    rm -rf ~/.claudebox/plugins/cache 2>/dev/null || true
+    cp -R ~/.claude/plugins/cache ~/.claudebox/plugins/ 2>/dev/null || true
+  fi
+fi
+# Sync metadata files with path conversion (host paths → container paths)
 for metadata_file in known_marketplaces.json installed_plugins.json; do
-  if [ -f ~/.claude/plugins/"$metadata_file" ] && [ ! -f ~/.claudebox/plugins/"$metadata_file" ]; then
-    # Copy and replace $HOME path with container home
+  if [ -f ~/.claude/plugins/"$metadata_file" ]; then
     sed "s|$HOME|/home/claude|g" ~/.claude/plugins/"$metadata_file" > ~/.claudebox/plugins/"$metadata_file" 2>/dev/null || true
   fi
 done
-# Copy cache directory if it doesn't exist
-if [ -d ~/.claude/plugins/cache ] && [ ! -d ~/.claudebox/plugins/cache ]; then
-  cp -R ~/.claude/plugins/cache ~/.claudebox/plugins/ 2>/dev/null || true
-fi
 # Initialize .claude.json if missing or empty (Claude Code expects valid JSON)
 [ -s ~/.claudebox/.claude.json ] || echo '{}' > ~/.claudebox/.claude.json
+# --- Marketplace state sync ---
+# Claude Code tracks official marketplace install state in .claude.json. If a previous
+# sandbox session failed to install (e.g., network issue), it saves fail/retry fields:
+#   - officialMarketplaceAutoInstallFailReason: "unknown"
+#   - officialMarketplaceAutoInstallRetryCount: N
+#   - officialMarketplaceAutoInstallNextRetryTime: timestamp
+# This causes "Failed to install Anthropic marketplace" on every startup until resolved.
+# Fix: inherit the host's successful install state and remove any stale fail fields.
+if command -v jq &>/dev/null && [ -f ~/.claude.json ]; then
+  host_state=$(jq '{
+    officialMarketplaceAutoInstallAttempted,
+    officialMarketplaceAutoInstalled
+  } | with_entries(select(.value != null))' ~/.claude.json 2>/dev/null)
+  if [ -n "$host_state" ] && [ "$host_state" != "{}" ]; then
+    jq --argjson host "$host_state" '. + $host | del(
+      .officialMarketplaceAutoInstallFailReason,
+      .officialMarketplaceAutoInstallRetryCount,
+      .officialMarketplaceAutoInstallLastAttemptTime,
+      .officialMarketplaceAutoInstallNextRetryTime
+    )' ~/.claudebox/.claude.json > ~/.claudebox/.claude.json.tmp 2>/dev/null && \
+      mv ~/.claudebox/.claude.json.tmp ~/.claudebox/.claude.json 2>/dev/null || true
+  fi
+fi
 
 # --- Argument parsing ---
 # Arrays and variables for building the docker run command
