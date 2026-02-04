@@ -290,7 +290,7 @@ if [ "$readonly_mode" = true ]; then
   readonly_args+=(--tmpfs "/home/claude/.claude/plans:rw,nosuid,size=64m,uid=1000,gid=1000")
   # Force all extra mounts to read-only regardless of profile config
   for i in "${!extra_mounts[@]}"; do
-    [[ "${extra_mounts[$i]}" != "-v" && "${extra_mounts[$i]}" != *":ro" ]] && extra_mounts[$i]+=":ro"
+    [[ "${extra_mounts[$i]}" != "-v" && "${extra_mounts[$i]}" != *":ro" ]] && extra_mounts[i]+=":ro"
   done
 fi
 
@@ -328,7 +328,7 @@ fi
 
 # Assemble the complete docker run command as an array for safe quoting
 docker_cmd=(
-  docker run $tty_flags
+  docker run "$tty_flags"
   ${container_args[@]+"${container_args[@]}"}
   # Security hardening: drop all Linux capabilities
   --cap-drop=ALL
@@ -342,7 +342,7 @@ docker_cmd=(
   --tmpfs "/tmp:rw,nosuid,size=$TMPFS_TMP_SIZE"
   --tmpfs "/home/claude/.cache:rw,nosuid,size=$TMPFS_CACHE_SIZE"
   --tmpfs "/home/claude/.npm:rw,nosuid,size=$TMPFS_NPM_SIZE"
-  -v ~/.claudebox/claude-dotconfig:/home/claude/.config${ro_suffix}
+  -v "$HOME/.claudebox/claude-dotconfig:/home/claude/.config${ro_suffix}"
   --tmpfs "/home/claude/.local:rw,nosuid,size=$TMPFS_LOCAL_SIZE,uid=1000,gid=1000"
   # Apply resource limits (if configured in profile)
   ${resource_args[@]+"${resource_args[@]}"}
@@ -358,11 +358,11 @@ docker_cmd=(
   # Set the working directory inside the container to match the host
   --workdir "$workdir"
   # Mount the current project directory at the same path for path parity
-  -v "$workdir:$workdir${ro_suffix}"
+  -v "${workdir}:${workdir}${ro_suffix}"
   # Persist Claude Code credentials and config across sessions
-  -v ~/.claudebox/claude-config:/home/claude/.claude${ro_suffix}
+  -v "$HOME/.claudebox/claude-config:/home/claude/.claude${ro_suffix}"
   # Persist Claude Code session state (conversation history, etc.)
-  -v ~/.claudebox/.claude.json:/home/claude/.claude.json${ro_suffix}
+  -v "$HOME/.claudebox/.claude.json:/home/claude/.claude.json${ro_suffix}"
   # Mount sandbox plugins directory (writable, isolated from host ~/.claude/plugins/)
   -v ~/.claudebox/plugins:/home/claude/.claude/plugins
   # Add readonly mode tmpfs overlay (plans directory) when enabled
@@ -387,7 +387,7 @@ fi
 # --- Execute the container ---
 if [ "$audit_log" = "true" ]; then
   # With audit logging: use a named container so we can dump logs afterward
-  # shellcheck disable=SC2317
+  # shellcheck disable=SC2317,SC2329
   cleanup() {
     # On interrupt/termination, force-stop and remove the named container
     docker kill "$container_name" &>/dev/null || true
