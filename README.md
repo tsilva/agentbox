@@ -222,6 +222,23 @@ claudebox                 # Interactive prompt to select profile
 
 **Note:** Requires `jq` to be installed. If `jq` is missing or the config file is invalid, extra mounts and ports are skipped with a warning and the sandbox runs normally.
 
+**Example use case:** Git worktrees for parallel feature development:
+
+```bash
+# Create a worktree for a feature branch
+git worktree add ../myrepo-feature feature-branch
+
+# Terminal 1: run claudebox in main worktree
+cd /path/to/myrepo
+claudebox
+
+# Terminal 2: run claudebox in feature worktree
+cd /path/to/myrepo-feature
+claudebox
+```
+
+Each claudebox instance is scoped to its own worktree directory. Claude in the feature worktree cannot see or modify files in the main worktree, and vice versa. This prevents accidental cross-contamination when working on multiple branches simultaneously.
+
 ## 🐳 Per-Project Dockerfile
 
 Place a `.claudebox.Dockerfile` in your project root to customize the container with project-specific dependencies. The file is a standard Dockerfile that builds on top of the base image:
