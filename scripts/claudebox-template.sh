@@ -240,11 +240,12 @@ if [ -f ".claudebox.json" ]; then
         elif [ ! -e "$mount_path" ]; then
           echo "Warning: Mount path does not exist: $mount_path" >&2
           echo "  Hint: Create it with: mkdir -p $mount_path" >&2
-        # Detect and reject symlinks (could point to unintended directories)
+        # Reject symlinks (TOCTOU risk: symlink target could change between validation and mount)
         elif [ -L "$mount_path" ]; then
           real_path=$(readlink -f "$mount_path" 2>/dev/null || echo "unresolved")
-          echo "Warning: Mount path is a symlink: $mount_path → $real_path" >&2
-          echo "  Hint: Specify the actual path directly for security" >&2
+          echo "Error: Mount path is a symlink (security policy): $mount_path → $real_path" >&2
+          echo "  Hint: Specify the actual path directly" >&2
+          continue
         else
           # Valid mount — add to the docker run arguments
           extra_mounts+=(-v "$mount_spec")

@@ -51,6 +51,10 @@ SANDBOX_EOF
     echo ""
     echo "## ⚠️ Network Isolated"
     echo "This container has no network access. All external requests will fail."
+  else
+    echo ""
+    echo "## ⚠️ Network Access Enabled"
+    echo "This container has outbound network access. Claude can make HTTP requests to external services, which could be used to exfiltrate data from mounted directories."
   fi
 } >> /home/claude/.claude/CLAUDE.md
 
