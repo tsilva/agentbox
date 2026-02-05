@@ -7,7 +7,7 @@
   [![GitHub last commit](https://img.shields.io/github/last-commit/tsilva/claudebox)](https://github.com/tsilva/claudebox/commits/main)
   [![macOS](https://img.shields.io/badge/macOS-Supported-000000?logo=apple&logoColor=white)](https://github.com/tsilva/claudebox)
 
-  **🔒 Let AI code autonomously. Without fear. 🤖**
+  **⚡ Full autonomy. Zero blast radius. 🛡️**
 
   > *"I gave Claude full autonomy and watched it refactor my codebase. My system? Untouched."*
 
