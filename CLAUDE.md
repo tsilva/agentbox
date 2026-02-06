@@ -109,7 +109,7 @@ Projects can define named profiles via `.claudebox.json` in the project root:
 - `audit_log` (optional): If `true`, enables session audit logging to `~/.claudebox/logs/` (default: `false`)
 - `cpu` (optional): CPU limit string (e.g., `"4"`) — maps to `docker --cpus`
 - `memory` (optional): Memory limit string (e.g., `"8g"`) — maps to `docker --memory`
-- `pids_limit` (optional): Max number of processes (e.g., `256`) — maps to `docker --pids-limit`
+- `pids_limit` (optional): Max number of processes (e.g., `256`) — maps to `docker --pids-limit` (default: `256`)
 - `ulimit_nofile` (optional): Open file descriptors limit (e.g., `"1024:2048"`) — maps to `docker --ulimit nofile=`
 - `ulimit_fsize` (optional): Max file size in bytes (e.g., `1073741824`) — maps to `docker --ulimit fsize=`
 

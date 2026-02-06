@@ -244,6 +244,125 @@ assert_contains "$output" "--pids-limit 256" "pids limit passed"
 
 teardown_test_dir
 
+# --- Test: Blocked path enforcement ---
+echo ""
+echo "--- Blocked Path Enforcement ---"
+
+setup_test_dir
+git init -q
+
+# Test: ~/.ssh should be blocked
+cat > .claudebox.json << EOF
+{"dev":{"mounts":[{"path":"$HOME/.ssh"}]}}
+EOF
+output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
+assert_contains "$output" "blocked (security policy)" "\$HOME/.ssh blocked"
+
+# Test: /etc should be blocked
+cat > .claudebox.json << 'EOF'
+{"dev":{"mounts":[{"path":"/etc"}]}}
+EOF
+output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
+assert_contains "$output" "blocked (security policy)" "/etc blocked"
+
+# Test: /etc/passwd should be blocked (child of /etc)
+cat > .claudebox.json << 'EOF'
+{"dev":{"mounts":[{"path":"/etc/passwd"}]}}
+EOF
+output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
+assert_contains "$output" "blocked (security policy)" "/etc/passwd blocked"
+
+# Test: / should be blocked
+cat > .claudebox.json << 'EOF'
+{"dev":{"mounts":[{"path":"/"}]}}
+EOF
+output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
+assert_contains "$output" "blocked (security policy)" "/ blocked"
+
+# Test: ~/.aws should be blocked
+cat > .claudebox.json << EOF
+{"dev":{"mounts":[{"path":"$HOME/.aws"}]}}
+EOF
+output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
+assert_contains "$output" "blocked (security policy)" "\$HOME/.aws blocked"
+
+# Test: ~/.docker should be blocked
+cat > .claudebox.json << EOF
+{"dev":{"mounts":[{"path":"$HOME/.docker"}]}}
+EOF
+output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
+assert_contains "$output" "blocked (security policy)" "\$HOME/.docker blocked"
+
+# Test: Blocked path exits with non-zero
+cat > .claudebox.json << EOF
+{"dev":{"mounts":[{"path":"$HOME/.ssh"}]}}
+EOF
+if "$PROCESSED_TEMPLATE" --dry-run --profile dev &>/dev/null; then
+  fail "blocked path should exit non-zero"
+else
+  pass "blocked path exits non-zero"
+fi
+
+# Test: /tmp is NOT blocked (common writable mount)
+mkdir -p /tmp/claudebox-test-allowed
+cat > .claudebox.json << 'EOF'
+{"dev":{"mounts":[{"path":"/tmp/claudebox-test-allowed"}]}}
+EOF
+output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
+assert_not_contains "$output" "blocked" "/tmp is not blocked"
+rmdir /tmp/claudebox-test-allowed 2>/dev/null || true
+
+teardown_test_dir
+
+# --- Test: Resource limit format validation ---
+echo ""
+echo "--- Resource Limit Format Validation ---"
+
+setup_test_dir
+git init -q
+
+# Test: Invalid cpu format should be rejected
+cat > .claudebox.json << 'EOF'
+{"dev":{"cpu":"abc"}}
+EOF
+output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
+assert_contains "$output" "Invalid cpu format" "invalid cpu rejected"
+
+# Test: Injection attempt in cpu should be rejected
+cat > .claudebox.json << 'EOF'
+{"dev":{"cpu":"2; rm -rf /"}}
+EOF
+output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
+assert_contains "$output" "Invalid cpu format" "cpu injection rejected"
+
+# Test: Invalid memory format should be rejected
+cat > .claudebox.json << 'EOF'
+{"dev":{"memory":"lots"}}
+EOF
+output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
+assert_contains "$output" "Invalid memory format" "invalid memory rejected"
+
+# Test: Invalid pids_limit format should be rejected
+cat > .claudebox.json << 'EOF'
+{"dev":{"pids_limit":"abc"}}
+EOF
+output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
+assert_contains "$output" "Invalid pids_limit format" "invalid pids_limit rejected"
+
+# Test: Default pids-limit is always present (no profile config)
+echo '{"dev":{}}' > .claudebox.json
+output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
+assert_contains "$output" "--pids-limit 256" "default pids-limit present"
+
+# Test: Valid decimal cpu should be accepted
+cat > .claudebox.json << 'EOF'
+{"dev":{"cpu":"1.5"}}
+EOF
+output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
+assert_contains "$output" "--cpus 1.5" "decimal cpu accepted"
+
+teardown_test_dir
+
 # --- Test: Mount readonly flag ---
 echo ""
 echo "--- Mount Readonly Flag ---"

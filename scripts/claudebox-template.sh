@@ -19,6 +19,9 @@ IMAGE_NAME="PLACEHOLDER_IMAGE_NAME"
 : "${TMPFS_NPM_SIZE:=256m}"
 : "${TMPFS_LOCAL_SIZE:=512m}"
 
+# Default process limit to prevent fork bombs
+DEFAULT_PIDS_LIMIT=256
+
 # Seccomp profile path (for syscall filtering)
 SECCOMP_PROFILE="$HOME/.claudebox/seccomp.json"
 
@@ -50,7 +53,8 @@ fi
 # Sync metadata files with path conversion (host paths → container paths)
 for metadata_file in known_marketplaces.json installed_plugins.json; do
   if [ -f ~/.claude/plugins/"$metadata_file" ]; then
-    sed "s|$HOME|/home/claude|g" ~/.claude/plugins/"$metadata_file" > ~/.claudebox/plugins/"$metadata_file" 2>/dev/null || true
+    content=$(<~/.claude/plugins/"$metadata_file")
+    printf '%s\n' "${content//$HOME//home/claude}" > ~/.claudebox/plugins/"$metadata_file" 2>/dev/null || true
   fi
 done
 # Initialize .claude.json if missing or empty (Claude Code expects valid JSON)
@@ -126,6 +130,39 @@ if [ "$first_cmd" = "shell" ]; then
   cmd_args=("${cmd_args[@]:1}")
 fi
 
+# --- Dangerous path blocklist ---
+# These paths are blocked to prevent exposing sensitive host system data
+BLOCKED_PATHS=(
+  # Root filesystem
+  "/"
+  # System directories
+  "/bin" "/boot" "/dev" "/etc" "/lib" "/lib32" "/lib64" "/libx32"
+  "/opt" "/proc" "/root" "/run" "/sbin" "/srv" "/sys" "/usr" "/var"
+  # Sensitive user directories (credentials/keys)
+  "$HOME/.ssh" "$HOME/.gnupg" "$HOME/.aws" "$HOME/.azure" "$HOME/.gcloud"
+  "$HOME/.config/gcloud" "$HOME/.kube" "$HOME/.docker" "$HOME/.npmrc"
+  "$HOME/.netrc" "$HOME/.password-store" "$HOME/.local/share/keyrings"
+  # Claude-specific (already managed)
+  "$HOME/.claude" "$HOME/.claudebox"
+)
+
+normalize_path() {
+  local p="$1"
+  local normalized
+  normalized=$(realpath -m "${p/#\~/$HOME}" 2>/dev/null) || normalized="${p/#\~/$HOME}"
+  [[ "$normalized" != "/" ]] && normalized="${normalized%/}"
+  echo "$normalized"
+}
+
+is_path_blocked() {
+  local normalized="$1"
+  for blocked in "${BLOCKED_PATHS[@]}"; do
+    [[ "$normalized" == "$blocked" ]] && return 0
+    [[ "$normalized" == "$blocked"/* ]] && return 0
+  done
+  return 1
+}
+
 # --- Per-project configuration (.claudebox.json) ---
 if [ -f ".claudebox.json" ]; then
   # jq is required to parse the JSON config
@@ -183,39 +220,6 @@ if [ -f ".claudebox.json" ]; then
         }
       ' .claudebox.json 2>/dev/null)
 
-      # --- Dangerous path blocklist ---
-      # These paths are blocked to prevent exposing sensitive host system data
-      BLOCKED_PATHS=(
-        # Root filesystem
-        "/"
-        # System directories
-        "/bin" "/boot" "/dev" "/etc" "/lib" "/lib32" "/lib64" "/libx32"
-        "/opt" "/proc" "/root" "/run" "/sbin" "/srv" "/sys" "/usr" "/var"
-        # Sensitive user directories (credentials/keys)
-        "$HOME/.ssh" "$HOME/.gnupg" "$HOME/.aws" "$HOME/.azure" "$HOME/.gcloud"
-        "$HOME/.config/gcloud" "$HOME/.kube" "$HOME/.docker" "$HOME/.npmrc"
-        "$HOME/.netrc" "$HOME/.password-store" "$HOME/.local/share/keyrings"
-        # Claude-specific (already managed)
-        "$HOME/.claude" "$HOME/.claudebox"
-      )
-
-      normalize_path() {
-        local p="$1"
-        local normalized
-        normalized=$(realpath -m "${p/#\~/$HOME}" 2>/dev/null) || normalized="${p/#\~/$HOME}"
-        [[ "$normalized" != "/" ]] && normalized="${normalized%/}"
-        echo "$normalized"
-      }
-
-      is_path_blocked() {
-        local normalized="$1"
-        for blocked in "${BLOCKED_PATHS[@]}"; do
-          [[ "$normalized" == "$blocked" ]] && return 0
-          [[ "$normalized" == "$blocked"/* ]] && return 0
-        done
-        return 1
-      }
-
       # Parse mount specifications and validate each one
       while IFS= read -r mount_spec; do
         # Skip empty lines from jq output
@@ -227,6 +231,7 @@ if [ -f ".claudebox.json" ]; then
         # Check against dangerous path blocklist
         if is_path_blocked "$normalized_path"; then
           echo "Error: Mount path blocked (security policy): $mount_path" >&2
+          exit 1
         # Reject paths with multiple colons (ambiguous Docker mount syntax)
         elif [[ "$mount_spec" == *":"*":"*":"* ]]; then
           echo "Warning: Skipping mount path containing ':': $mount_path" >&2
@@ -277,10 +282,20 @@ if [ -f ".claudebox.json" ]; then
         fi
       done < <(echo "$profile_config" | jq -r '.ports[]')
 
-      # Parse all scalar configuration values in a single jq call
+      # Parse all scalar configuration values in a single jq call.
+      # Use "_" as sentinel for null/false to prevent bash read from collapsing
+      # consecutive tab delimiters (bash treats multiple IFS chars as one).
       IFS=$'\t' read -r network_mode audit_log profile_cpu profile_memory \
         profile_pids_limit profile_ulimit_nofile profile_ulimit_fsize \
-        < <(echo "$profile_config" | jq -r '[.network, .audit_log, .cpu, .memory, .pids_limit, .ulimit_nofile, .ulimit_fsize] | map(. // "") | @tsv')
+        < <(echo "$profile_config" | jq -r '[.network, .audit_log, .cpu, .memory, .pids_limit, .ulimit_nofile, .ulimit_fsize] | map(if . == null then "_" elif . == false then "false" elif . == true then "true" else tostring end) | @tsv')
+      # Convert sentinel values back to empty strings
+      [[ "$network_mode" == "_" ]] && network_mode=""
+      [[ "$audit_log" == "_" ]] && audit_log=""
+      [[ "$profile_cpu" == "_" ]] && profile_cpu=""
+      [[ "$profile_memory" == "_" ]] && profile_memory=""
+      [[ "$profile_pids_limit" == "_" ]] && profile_pids_limit=""
+      [[ "$profile_ulimit_nofile" == "_" ]] && profile_ulimit_nofile=""
+      [[ "$profile_ulimit_fsize" == "_" ]] && profile_ulimit_fsize=""
     fi
   fi
 fi
@@ -291,6 +306,15 @@ fi
 git_dir=""
 if git -C "$workdir" rev-parse --git-dir &>/dev/null; then
   git_dir="$(cd "$workdir" && git rev-parse --absolute-git-dir)"
+  normalized_git_dir=$(normalize_path "$git_dir")
+  if is_path_blocked "$normalized_git_dir"; then
+    echo "Error: Git directory blocked (security policy): $git_dir" >&2
+    exit 1
+  elif [ -L "$git_dir" ]; then
+    real_git_path=$(readlink -f "$git_dir" 2>/dev/null || echo "unresolved")
+    echo "Error: Git directory is a symlink (security policy): $git_dir → $real_git_path" >&2
+    exit 1
+  fi
   extra_mounts+=(-v "$git_dir:$git_dir:ro")
 else
   echo "Warning: Not inside a git repository. Working directory will be writable." >&2
@@ -302,11 +326,28 @@ network_args=()
 [[ ! "${network_mode:-bridge}" =~ ^(bridge|none)$ ]] && { echo "Error: Unsupported network mode '$network_mode' (allowed: bridge, none)" >&2; exit 1; }
 [[ "${network_mode:-}" == "none" ]] && network_args=(--network none)
 
-# --- Resource limits (opt-in via profile config) ---
+# --- Resource limit validation ---
+if [ -n "${profile_cpu:-}" ] && ! [[ "$profile_cpu" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+  echo "Error: Invalid cpu format '$profile_cpu' (expected: integer or decimal, e.g. '4' or '1.5')" >&2; exit 1
+fi
+if [ -n "${profile_memory:-}" ] && ! [[ "$profile_memory" =~ ^[0-9]+[bkmgBKMG]?$ ]]; then
+  echo "Error: Invalid memory format '$profile_memory' (expected: number with optional unit, e.g. '4g' or '512m')" >&2; exit 1
+fi
+if [ -n "${profile_pids_limit:-}" ] && ! [[ "$profile_pids_limit" =~ ^[0-9]+$ ]]; then
+  echo "Error: Invalid pids_limit format '$profile_pids_limit' (expected: integer, e.g. '256')" >&2; exit 1
+fi
+if [ -n "${profile_ulimit_nofile:-}" ] && ! [[ "$profile_ulimit_nofile" =~ ^[0-9]+(:[0-9]+)?$ ]]; then
+  echo "Error: Invalid ulimit_nofile format '$profile_ulimit_nofile' (expected: 'soft:hard' or 'value', e.g. '1024:2048')" >&2; exit 1
+fi
+if [ -n "${profile_ulimit_fsize:-}" ] && ! [[ "$profile_ulimit_fsize" =~ ^[0-9]+$ ]]; then
+  echo "Error: Invalid ulimit_fsize format '$profile_ulimit_fsize' (expected: integer bytes, e.g. '1073741824')" >&2; exit 1
+fi
+
+# --- Resource limits ---
 resource_args=()
 [ -n "${profile_cpu:-}" ] && resource_args+=(--cpus "$profile_cpu")
 [ -n "${profile_memory:-}" ] && resource_args+=(--memory "$profile_memory")
-[ -n "${profile_pids_limit:-}" ] && resource_args+=(--pids-limit "$profile_pids_limit")
+resource_args+=(--pids-limit "${profile_pids_limit:-$DEFAULT_PIDS_LIMIT}")
 [ -n "${profile_ulimit_nofile:-}" ] && resource_args+=(--ulimit "nofile=$profile_ulimit_nofile")
 [ -n "${profile_ulimit_fsize:-}" ] && resource_args+=(--ulimit "fsize=$profile_ulimit_fsize:$profile_ulimit_fsize")
 
@@ -396,7 +437,7 @@ docker_cmd=(
   -e "CLAUDEBOX_NETWORK_MODE=${network_mode:-bridge}"
   -e "CLAUDEBOX_CPU_LIMIT=${profile_cpu:-}"
   -e "CLAUDEBOX_MEMORY_LIMIT=${profile_memory:-}"
-  -e "CLAUDEBOX_PIDS_LIMIT=${profile_pids_limit:-}"
+  -e "CLAUDEBOX_PIDS_LIMIT=${profile_pids_limit:-$DEFAULT_PIDS_LIMIT}"
   -e "CLAUDEBOX_EXTRA_MOUNTS=${extra_mounts_info:-}"
   -e "CLAUDEBOX_READONLY=${readonly_mode:-false}"
   # Set the working directory inside the container to match the host
