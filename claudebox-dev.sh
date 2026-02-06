@@ -63,6 +63,13 @@ do_build() {
   # Build from the repo root which contains the Dockerfile
   docker build -t "$IMAGE_NAME" "$REPO_ROOT"
 
+  # Extract the baked-in Claude Code version so the host CLI can check for updates
+  installed_version=$(docker run --rm --entrypoint cat "$IMAGE_NAME" /opt/claude-code/VERSION 2>/dev/null) || true
+  if [ -n "$installed_version" ]; then
+    mkdir -p "$HOME/.claudebox"
+    printf '%s' "$installed_version" > "$HOME/.claudebox/version"
+  fi
+
   echo ""
   echo "Done! Image '$IMAGE_NAME' is ready."
   echo "Run '$SCRIPT_NAME' from any directory to start."
@@ -91,6 +98,9 @@ do_install() {
   # Copy the seccomp profile to the install directory
   cp "${REPO_ROOT}/scripts/seccomp.json" "$HOME/.claudebox/seccomp.json"
   echo "Installed $HOME/.claudebox/seccomp.json"
+
+  # Store repo path so `claudebox update` can find the source tree
+  printf '%s' "$REPO_ROOT" > "$HOME/.claudebox/.repo-path"
 
   # Create alias symlink
   ln -sf "$SCRIPT_NAME" "$bin_dir/claudes"

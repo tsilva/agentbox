@@ -130,6 +130,71 @@ if [ "$first_cmd" = "shell" ]; then
   cmd_args=("${cmd_args[@]:1}")
 fi
 
+# Handle "update" command: pull latest source and reinstall
+if [ "$first_cmd" = "update" ]; then
+  repo_path=""
+  # Try repo path from one-liner install first, then dev install
+  for candidate in "$HOME/.claudebox/repo" "$HOME/.claudebox/.repo-path"; do
+    if [ -f "$candidate" ]; then
+      repo_path=$(<"$candidate")
+      break
+    fi
+  done
+  if [ -z "$repo_path" ] || [ ! -d "$repo_path" ]; then
+    echo "Error: Cannot find claudebox source directory." >&2
+    echo "Reinstall claudebox from the repo to enable updates." >&2
+    exit 1
+  fi
+  echo "Updating from $repo_path..."
+  git -C "$repo_path" pull --ff-only
+  exec "$repo_path/claudebox-dev.sh" install
+fi
+
+# --- Version staleness check ---
+# Warn the user if a newer Claude Code version is available upstream.
+# Uses a 24h-cached check against the GCS latest endpoint.
+check_version_staleness() {
+  local installed_version latest_version cache_file cache_age now file_mtime
+  local version_file="$HOME/.claudebox/version"
+  cache_file="$HOME/.claudebox/.latest-version"
+
+  # No version file means pre-version-tracking build — skip silently
+  [ -f "$version_file" ] || return 0
+  installed_version=$(<"$version_file")
+  [ -n "$installed_version" ] || return 0
+
+  # Check if cache is fresh (< 24h)
+  if [ -f "$cache_file" ]; then
+    now=$(date +%s)
+    # macOS stat uses -f %m, Linux uses -c %Y
+    file_mtime=$(stat -f %m "$cache_file" 2>/dev/null || stat -c %Y "$cache_file" 2>/dev/null || echo 0)
+    cache_age=$(( now - file_mtime ))
+    if [ "$cache_age" -lt 86400 ]; then
+      latest_version=$(<"$cache_file")
+    fi
+  fi
+
+  # Fetch from upstream if cache is stale or missing
+  if [ -z "${latest_version:-}" ]; then
+    latest_version=$(curl -fsSL --max-time 2 \
+      "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/latest" 2>/dev/null) || true
+    if [ -n "$latest_version" ]; then
+      mkdir -p "$HOME/.claudebox"
+      printf '%s' "$latest_version" > "$cache_file"
+    else
+      # Fetch failed — fall back to stale cache
+      [ -f "$cache_file" ] && latest_version=$(<"$cache_file")
+    fi
+  fi
+
+  # Compare versions
+  [ -n "${latest_version:-}" ] || return 0
+  if [ "$installed_version" != "$latest_version" ]; then
+    echo "claudebox: update available ($installed_version → $latest_version) — run: claudebox update" >&2
+  fi
+}
+check_version_staleness
+
 # --- Dangerous path blocklist ---
 # These paths are blocked to prevent exposing sensitive host system data
 BLOCKED_PATHS=(

@@ -171,3 +171,7 @@ jobs:
       # path injection, port validation, network mode restrictions.
       - name: Run validation tests
         run: ./tests/validation-test.sh
+
+      # Version staleness check tests verify the update warning logic
+      - name: Run version check tests
+        run: ./tests/version-check-test.sh

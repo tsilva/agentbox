@@ -43,3 +43,6 @@ if [ "$EXPECTED_SHA" != "$ACTUAL_SHA" ]; then
 fi
 
 echo "Checksum verified: $ACTUAL_SHA"
+
+# Record the installed version for staleness checking by the host CLI
+echo "$VERSION" > /opt/claude-code/VERSION
