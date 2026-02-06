@@ -73,13 +73,13 @@ if command -v jq &>/dev/null && [ -f ~/.claude.json ]; then
     officialMarketplaceAutoInstalled
   } | with_entries(select(.value != null))' ~/.claude.json 2>/dev/null)
   if [ -n "$host_state" ] && [ "$host_state" != "{}" ]; then
-    jq --argjson host "$host_state" '. + $host | del(
+    updated=$(jq --argjson host "$host_state" '. + $host | del(
       .officialMarketplaceAutoInstallFailReason,
       .officialMarketplaceAutoInstallRetryCount,
       .officialMarketplaceAutoInstallLastAttemptTime,
       .officialMarketplaceAutoInstallNextRetryTime
-    )' ~/.claudebox/.claude.json > ~/.claudebox/.claude.json.tmp 2>/dev/null && \
-      mv ~/.claudebox/.claude.json.tmp ~/.claudebox/.claude.json 2>/dev/null || true
+    )' ~/.claudebox/.claude.json 2>/dev/null) && \
+      [ -n "$updated" ] && printf '%s\n' "$updated" > ~/.claudebox/.claude.json
   fi
 fi
 
