@@ -13,9 +13,10 @@ claudebox/
 ├── Dockerfile              # OCI-compatible image definition
 ├── .dockerignore           # Files excluded from build context
 ├── entrypoint.sh           # Container entrypoint (sandbox awareness, venv activation)
-├── install.sh              # One-liner curl install script
-├── claudebox-dev.sh        # Dev CLI (build/install/uninstall/kill/update)
+├── install.sh              # Self-contained installer (dual-mode: curl pipe + local repo)
+├── uninstall.sh            # Standalone uninstaller
 ├── scripts/
+│   ├── claudebox-dev.sh        # Dev CLI (build/kill/update)
 │   ├── claudebox-template.sh   # Standalone script template
 │   ├── install-claude-code.sh  # Claude Code installer
 │   └── seccomp.json            # Syscall filtering profile
@@ -36,20 +37,20 @@ claudebox/
 ## Commands
 
 ```bash
-# Build/rebuild the container image
-./claudebox-dev.sh build
-
 # Install (builds image + installs script to ~/.claudebox/bin/)
-./claudebox-dev.sh install
+./install.sh
 
-# Remove the container image
-./claudebox-dev.sh uninstall
+# Uninstall (removes image, scripts, PATH entry)
+./uninstall.sh
+
+# Build/rebuild the container image (dev convenience)
+./scripts/claudebox-dev.sh build
 
 # Force stop running containers
-./claudebox-dev.sh kill
+./scripts/claudebox-dev.sh kill
 
 # Pull latest + rebuild
-./claudebox-dev.sh update
+./scripts/claudebox-dev.sh update
 ```
 
 ## Usage
@@ -139,7 +140,7 @@ claudebox -P dev -p "run tests"  # Profile + print mode
 The project consists of shell scripts that wrap Docker:
 
 - **Dockerfile** - Debian slim image with Claude Code binary installed to `/opt/claude-code/`, entry point runs `claude --dangerously-skip-permissions`
-- **claudebox-dev.sh** - Self-contained dev CLI with build, install, uninstall, and kill functions
+- **scripts/claudebox-dev.sh** - Dev CLI with build, kill, and update commands (delegates install/uninstall)
 - **scripts/claudebox-template.sh** - Template for the installed standalone script
 
 ### Key Implementation Details

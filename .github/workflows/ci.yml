@@ -67,7 +67,7 @@ jobs:
       # Run shellcheck against all shell scripts in the project.
       # The glob patterns (*.sh) expand to match all .sh files in each directory:
       #   - scripts/*.sh        — shared library and template scripts
-      #   - claudebox-dev.sh — the main dev CLI script
+      #   - scripts/claudebox-dev.sh — the dev CLI script
       #   - tests/*.sh          — test scripts
       # If any script has issues, shellcheck exits with a non-zero code,
       # which causes this step (and the entire job) to fail.
@@ -129,7 +129,7 @@ jobs:
       # returns non-zero, which causes the step and job to fail.
       - name: Bash syntax check
         run: |
-          for f in scripts/*.sh claudebox-dev.sh tests/*.sh tests/lib/*.sh; do
+          for f in scripts/*.sh install.sh uninstall.sh tests/*.sh tests/lib/*.sh; do
             echo "Checking $f..."
             bash -n "$f"
           done

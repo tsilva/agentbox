@@ -20,7 +20,7 @@ echo ""
 # --- Test 1: Shell scripts pass bash -n syntax check ---
 # Validates every .sh file in the repo can be parsed without syntax errors
 echo "--- Syntax checks ---"
-for script in "$REPO_ROOT"/scripts/*.sh "$REPO_ROOT"/claudebox-dev.sh "$REPO_ROOT"/tests/*.sh "$REPO_ROOT"/tests/lib/*.sh; do
+for script in "$REPO_ROOT"/scripts/*.sh "$REPO_ROOT"/install.sh "$REPO_ROOT"/uninstall.sh "$REPO_ROOT"/tests/*.sh "$REPO_ROOT"/tests/lib/*.sh; do
   name="$(basename "$script")"
   # bash -n only parses without executing — catches syntax errors
   if bash -n "$script" 2>/dev/null; then

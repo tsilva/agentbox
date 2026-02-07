@@ -133,13 +133,12 @@ fi
 # Handle "update" command: pull latest source and reinstall
 if [ "$first_cmd" = "update" ]; then
   repo_path=""
-  # Try repo path from one-liner install first, then dev install
-  for candidate in "$HOME/.claudebox/repo" "$HOME/.claudebox/.repo-path"; do
-    if [ -f "$candidate" ]; then
-      repo_path=$(<"$candidate")
-      break
-    fi
-  done
+  # Try curl-install clone dir first (a directory), then dev-install breadcrumb (a file with path inside)
+  if [ -d "$HOME/.claudebox/repo" ]; then
+    repo_path="$HOME/.claudebox/repo"
+  elif [ -f "$HOME/.claudebox/.repo-path" ]; then
+    repo_path=$(<"$HOME/.claudebox/.repo-path")
+  fi
   if [ -z "$repo_path" ] || [ ! -d "$repo_path" ]; then
     echo "Error: Cannot find claudebox source directory." >&2
     echo "Reinstall claudebox from the repo to enable updates." >&2
@@ -147,7 +146,7 @@ if [ "$first_cmd" = "update" ]; then
   fi
   echo "Updating from $repo_path..."
   git -C "$repo_path" pull --ff-only
-  exec "$repo_path/claudebox-dev.sh" install
+  exec "$repo_path/install.sh"
 fi
 
 # --- Version staleness check ---

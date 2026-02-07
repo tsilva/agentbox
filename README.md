@@ -77,7 +77,7 @@ curl -fsSL https://raw.githubusercontent.com/tsilva/claudebox/main/install.sh | 
 ```bash
 git clone https://github.com/tsilva/claudebox.git
 cd claudebox
-./claudebox-dev.sh install
+./install.sh
 ```
 
 Then reload your shell and authenticate once (uses your Claude Pro/Max subscription):
@@ -256,11 +256,11 @@ When present, a per-project image is automatically built before each run. This l
 
 | Command | Purpose |
 |---------|---------|
-| `./claudebox-dev.sh install` | Build image and install `claudebox` script to `~/.claudebox/bin/` |
-| `./claudebox-dev.sh build` | Rebuild the container image |
-| `./claudebox-dev.sh update` | Pull latest changes and rebuild |
-| `./claudebox-dev.sh uninstall` | Remove the container image |
-| `./claudebox-dev.sh kill` | Force stop any running containers |
+| `./install.sh` | Build image and install `claudebox` script to `~/.claudebox/bin/` |
+| `./uninstall.sh` | Remove image, scripts, and PATH entry |
+| `./scripts/claudebox-dev.sh build` | Rebuild the container image |
+| `./scripts/claudebox-dev.sh update` | Pull latest changes and rebuild |
+| `./scripts/claudebox-dev.sh kill` | Force stop any running containers |
 
 ## 🔧 How It Works
 
@@ -272,7 +272,7 @@ graph LR
     D -->|changes| A
 ```
 
-1. **`claudebox-dev.sh install`** builds an OCI-compatible image and installs a standalone script to `~/.claudebox/bin/`
+1. **`install.sh`** builds an OCI-compatible image and installs a standalone script to `~/.claudebox/bin/`
 2. Running `claudebox` starts a container with your current directory mounted at its actual path
 3. Claude Code runs with `--dangerously-skip-permissions` inside the isolated environment
 4. All changes to the mounted directory are reflected in your project
@@ -297,9 +297,10 @@ claudebox/
 ├── Dockerfile              # OCI-compatible image definition
 ├── .dockerignore           # Files excluded from build context
 ├── entrypoint.sh           # Container entrypoint (sandbox awareness, venv activation)
-├── install.sh              # One-liner curl install script
-├── claudebox-dev.sh        # Dev CLI (build/install/uninstall/kill/update)
+├── install.sh              # Self-contained installer (dual-mode: curl pipe + local repo)
+├── uninstall.sh            # Standalone uninstaller
 ├── scripts/
+│   ├── claudebox-dev.sh        # Dev CLI (build/kill/update)
 │   ├── claudebox-template.sh   # Standalone script template
 │   ├── install-claude-code.sh  # Claude Code installer
 │   └── seccomp.json            # Syscall filtering profile
@@ -358,7 +359,7 @@ curl -I https://api.anthropic.com
 The container user UID is set at build time to match your host user. If you see permission errors on mounted files, rebuild:
 
 ```bash
-./claudebox-dev.sh build  # Rebuilds with your current UID
+./scripts/claudebox-dev.sh build  # Rebuilds with your current UID
 ```
 
 ### "Configuration file corrupted" on first run
