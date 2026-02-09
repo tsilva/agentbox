@@ -59,5 +59,5 @@ SANDBOX_EOF
 } >> /home/claude/.claude/CLAUDE.md
 
 # Replace this process with Claude Code running in fully autonomous mode.
-# All remaining arguments (e.g. "login", "shell") are forwarded to the binary.
+# All remaining arguments (e.g. "shell") are forwarded to the binary.
 exec claude --dangerously-skip-permissions --permission-mode plan "$@"

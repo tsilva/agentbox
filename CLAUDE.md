@@ -61,9 +61,6 @@ After installation, the `claudebox` command accepts the following arguments:
 # Run Claude Code in the sandbox (interactive mode)
 claudebox
 
-# Pass arguments to Claude (e.g., login)
-claudebox login
-
 # Non-interactive print mode: run a prompt and exit
 claudebox -p "explain this code"
 
@@ -131,7 +128,6 @@ Projects can define named profiles via `.claudebox.json` in the project root:
 claudebox --profile dev      # Use specific profile
 claudebox -P prod            # Short form (uppercase -P)
 claudebox                    # Interactive prompt
-claudebox --profile dev login  # Profile + args to Claude
 claudebox -P dev -p "run tests"  # Profile + print mode
 ```
 

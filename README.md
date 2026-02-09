@@ -24,7 +24,6 @@
 - [Why claudebox?](#-why-claudebox)
 - [Quick Start](#-quick-start)
 - [Requirements](#-requirements)
-- [Authentication](#-authentication)
 - [Usage](#-usage)
 - [Per-Project Configuration](#%EF%B8%8F-per-project-configuration)
 - [Per-Project Dockerfile](#-per-project-dockerfile)
@@ -80,13 +79,7 @@ cd claudebox
 ./install.sh
 ```
 
-Then reload your shell and authenticate once (uses your Claude Pro/Max subscription):
-
-```bash
-claudebox login
-```
-
-Now head to any project directory and start coding:
+Then reload your shell and head to any project directory:
 
 ```bash
 cd ~/my-project
@@ -98,24 +91,11 @@ claudebox
 - [Docker Desktop](https://docs.docker.com/get-docker/) on macOS (Linux/WSL2 not yet supported)
 - **Optional:** `jq` for per-project configuration support (`brew install jq`)
 
-## 🔑 Authentication
-
-claudebox uses your Claude Pro/Max subscription instead of API keys. On first use, authenticate via browser:
-
-```bash
-claudebox login
-```
-
-This opens a browser window for OAuth authentication. Your credentials are stored in `~/.claudebox/` and persist across all container sessions — you only need to log in once.
-
 ## 💻 Usage
 
 ```bash
 # Run Claude Code in the sandbox (interactive mode)
 claudebox
-
-# Pass arguments to Claude (e.g., login)
-claudebox login
 
 # Non-interactive print mode: run a prompt and exit
 claudebox -p "explain this code"
@@ -133,8 +113,6 @@ claudebox shell
 # With profiles (see Per-Project Configuration)
 claudebox --profile dev       # Use specific profile
 claudebox -P prod             # Short form (-P uppercase)
-claudebox --profile dev login # Profile + args to Claude
-
 # Combine profile with print mode
 claudebox -P dev -p "run tests"
 
@@ -369,12 +347,6 @@ The `.claude.json` file needs to be valid JSON. Reset it:
 ```bash
 echo '{}' > ~/.claudebox/.claude.json
 ```
-
-### Login doesn't persist
-
-Make sure both config paths are mounted. Check the generated script includes:
-- `-v ~/.claudebox/claude-config:/home/claude/.claude`
-- `-v ~/.claudebox/.claude.json:/home/claude/.claude.json`
 
 ### Per-project mounts not working
 
