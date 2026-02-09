@@ -41,6 +41,12 @@ fi
 # Resolve the repo root from this script's location
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Parse --update flag (passed by `claudebox update` to bust Docker cache)
+update_mode=false
+for arg in "$@"; do
+  [ "$arg" = "--update" ] && update_mode=true
+done
+
 # Detect the user's shell RC file for PATH configuration.
 detect_shell_rc() {
   if [ -f "$HOME/.zshrc" ]; then
@@ -74,7 +80,11 @@ do_build() {
   check_runtime
 
   echo "Building $IMAGE_NAME image..."
-  docker build -t "$IMAGE_NAME" "$REPO_ROOT"
+  local build_args=()
+  if [ "$update_mode" = true ]; then
+    build_args+=(--build-arg "CACHE_BUST=$(date +%s)")
+  fi
+  docker build ${build_args[@]+"${build_args[@]}"} -t "$IMAGE_NAME" "$REPO_ROOT"
 
   # Extract the baked-in Claude Code version so the host CLI can check for updates
   installed_version=$(docker run --rm --entrypoint cat "$IMAGE_NAME" /opt/claude-code/VERSION 2>/dev/null) || true

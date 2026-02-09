@@ -39,13 +39,19 @@ check_runtime() {
 }
 
 # Build the Docker image from the repo's Dockerfile
+# Pass --bust-cache to invalidate the Claude Code download layer
 do_build() {
   # Ensure Docker is available before attempting a build
   check_runtime
 
+  local build_args=()
+  if [ "${1:-}" = "--bust-cache" ]; then
+    build_args+=(--build-arg "CACHE_BUST=$(date +%s)")
+  fi
+
   echo "Building $IMAGE_NAME image..."
   # Build from the repo root which contains the Dockerfile
-  docker build -t "$IMAGE_NAME" "$REPO_ROOT"
+  docker build ${build_args[@]+"${build_args[@]}"} -t "$IMAGE_NAME" "$REPO_ROOT"
 
   # Extract the baked-in Claude Code version so the host CLI can check for updates
   installed_version=$(docker run --rm --entrypoint cat "$IMAGE_NAME" /opt/claude-code/VERSION 2>/dev/null) || true
@@ -109,7 +115,7 @@ case "$cmd" in
     echo "Pulling latest changes..."
     git -C "$REPO_ROOT" pull
     rm -f "$HOME/.claudebox/.latest-version"
-    do_build
+    do_build --bust-cache
     ;;
   *)
     # No valid command — print usage and exit with error

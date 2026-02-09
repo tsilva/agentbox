@@ -147,7 +147,7 @@ if [ "$first_cmd" = "update" ]; then
   echo "Updating from $repo_path..."
   git -C "$repo_path" pull --ff-only
   rm -f "$HOME/.claudebox/.latest-version"
-  exec "$repo_path/install.sh"
+  exec "$repo_path/install.sh" --update
 fi
 
 # --- Version staleness check ---

@@ -62,6 +62,10 @@ ENV PATH="/home/claude/.local/bin:/opt/uv/bin:/opt/claude-code:$PATH" \
 # Download the Claude Code standalone binary from Google Cloud Storage.
 # The install script handles version detection, architecture mapping,
 # binary download, and SHA256 checksum verification.
+# CACHE_BUST: defaults to "stable" so regular builds use Docker cache.
+# Override with a timestamp (e.g., --build-arg CACHE_BUST=$(date +%s))
+# to force re-downloading the latest Claude Code binary.
+ARG CACHE_BUST=stable
 COPY --chmod=755 --chown=claude:claude scripts/install-claude-code.sh /tmp/install-claude-code.sh
 RUN /tmp/install-claude-code.sh && rm /tmp/install-claude-code.sh
 
