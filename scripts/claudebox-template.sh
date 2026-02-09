@@ -10,6 +10,11 @@
 # Abort on any error
 set -euo pipefail
 
+# Source terminal styling library (graceful fallback to plain echo)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/style.sh
+source "$SCRIPT_DIR/style.sh" 2>/dev/null || true
+
 # Docker image name (replaced at install time by do_install)
 IMAGE_NAME="PLACEHOLDER_IMAGE_NAME"
 
@@ -140,11 +145,11 @@ if [ "$first_cmd" = "update" ]; then
     repo_path=$(<"$HOME/.claudebox/.repo-path")
   fi
   if [ -z "$repo_path" ] || [ ! -d "$repo_path" ]; then
-    echo "Error: Cannot find claudebox source directory." >&2
-    echo "Reinstall claudebox from the repo to enable updates." >&2
+    error_block "Cannot find claudebox source directory" \
+      "Reinstall claudebox from the repo to enable updates."
     exit 1
   fi
-  echo "Updating from $repo_path..."
+  step "Updating from $repo_path"
 
   # Capture HEAD before/after git pull to detect repo changes
   git_before=$(git -C "$repo_path" rev-parse HEAD)
@@ -163,7 +168,7 @@ if [ "$first_cmd" = "update" ]; then
 
   # If neither repo nor Claude Code version changed, skip rebuild
   if [ "$git_before" = "$git_after" ] && [ -n "$installed_version" ] && [ -n "$latest_version" ] && [ "$installed_version" = "$latest_version" ]; then
-    echo "Already up to date."
+    info "Already up to date"
     exit 0
   fi
 
@@ -211,7 +216,7 @@ check_version_staleness() {
   # Compare versions
   [ -n "${latest_version:-}" ] || return 0
   if [ "$installed_version" != "$latest_version" ]; then
-    echo "claudebox: update available ($installed_version → $latest_version) — run: claudebox update" >&2
+    warn "Update available ($installed_version → $latest_version) — run: claudebox update"
   fi
 }
 check_version_staleness
@@ -253,13 +258,13 @@ is_path_blocked() {
 if [ -f ".claudebox.json" ]; then
   # jq is required to parse the JSON config
   if ! command -v jq &>/dev/null; then
-    echo "Warning: jq not installed, skipping .claudebox.json config" >&2
-    echo "Install with: brew install jq" >&2
+    warn "jq not installed, skipping .claudebox.json config"
+    note "Install with: brew install jq"
   else
     # Validate the config file is a JSON object (not array, string, etc.)
     jq_error=""
     if ! jq_error=$(jq -e 'type == "object"' .claudebox.json 2>&1); then
-      echo "Error: Invalid .claudebox.json: $jq_error" >&2
+      error "Invalid .claudebox.json: $jq_error"
       exit 1
     fi
 
@@ -270,26 +275,21 @@ if [ -f ".claudebox.json" ]; then
     if [ -z "$profile_name" ] && [ "$profile_count" -eq 1 ]; then
       profile_name=$(jq -r 'keys[0]' .claudebox.json)
     elif [ -z "$profile_name" ] && [ "$profile_count" -gt 1 ]; then
-      # Read profile names into an array for the select menu (compatible with Bash 3)
+      # Read profile names into an array for the selection menu (compatible with Bash 3)
       profile_array=()
       while IFS= read -r _p; do profile_array+=("$_p"); done < <(jq -r 'keys[]' .claudebox.json)
-      echo "Available profiles:" >&2
-      # Present a numbered menu; reads from /dev/tty so it works in pipes
-      select profile_name in "${profile_array[@]}"; do
-        [ -n "$profile_name" ] && break
-        echo "Invalid selection." >&2
-      done </dev/tty
+      profile_name=$(choose "Select profile:" "${profile_array[@]}")
     fi
 
     # Validate the selected profile exists in the config
     if [ -n "$profile_name" ]; then
       if ! jq -e --arg p "$profile_name" 'has($p)' .claudebox.json &>/dev/null; then
-        echo "Error: Profile '$profile_name' not found" >&2
-        echo "Available: $(jq -r 'keys | join(", ")' .claudebox.json)" >&2
+        error "Profile '$profile_name' not found"
+        note "Available: $(jq -r 'keys | join(", ")' .claudebox.json)"
         exit 1
       fi
 
-      echo "Using profile: $profile_name" >&2
+      info "Using profile: $profile_name"
 
       # Extract all profile settings in a single jq call for efficiency.
       # Produces a normalized JSON object with mounts, ports, and scalar options.
@@ -308,7 +308,7 @@ if [ -f ".claudebox.json" ]; then
       ' .claudebox.json)
 
       if [ -z "$profile_config" ]; then
-        echo "Error: Failed to parse profile '$profile_name' from .claudebox.json" >&2
+        error "Failed to parse profile '$profile_name' from .claudebox.json"
         exit 1
       fi
 
@@ -322,26 +322,26 @@ if [ -f ".claudebox.json" ]; then
         normalized_path=$(normalize_path "$mount_path")
         # Check against dangerous path blocklist
         if is_path_blocked "$normalized_path"; then
-          echo "Error: Mount path blocked (security policy): $mount_path" >&2
+          error "Mount path blocked (security policy): $mount_path"
           exit 1
         # Reject paths with multiple colons (ambiguous Docker mount syntax)
         elif [[ "$mount_spec" == *":"*":"*":"* ]]; then
-          echo "Warning: Skipping mount path containing ':': $mount_path" >&2
+          warn "Skipping mount path containing ':': $mount_path"
         # Reject paths with path traversal sequences (../)
         elif [[ "$mount_path" =~ (^|/)\.\.($|/) ]]; then
-          echo "Warning: Skipping mount with path traversal: $mount_path" >&2
+          warn "Skipping mount with path traversal: $mount_path"
         # Reject paths with control characters (potential injection)
         elif [[ "$mount_path" =~ [[:cntrl:]] ]]; then
-          echo "Warning: Skipping mount with invalid characters" >&2
+          warn "Skipping mount with invalid characters"
         # Warn if the host path doesn't exist (Docker would create it as root)
         elif [ ! -e "$mount_path" ]; then
-          echo "Warning: Mount path does not exist: $mount_path" >&2
-          echo "  Hint: Create it with: mkdir -p $mount_path" >&2
+          warn "Mount path does not exist: $mount_path"
+          note "Create it with: mkdir -p $mount_path"
         # Reject symlinks (TOCTOU risk: symlink target could change between validation and mount)
         elif [ -L "$mount_path" ]; then
           real_path=$(readlink -f "$mount_path" 2>/dev/null || echo "unresolved")
-          echo "Error: Mount path is a symlink (security policy): $mount_path → $real_path" >&2
-          echo "  Hint: Specify the actual path directly" >&2
+          error "Mount path is a symlink (security policy): $mount_path → $real_path"
+          note "Specify the actual path directly"
           continue
         else
           # Valid mount — add to the docker run arguments
@@ -364,10 +364,10 @@ if [ -f ".claudebox.json" ]; then
         container_port="${port_spec##*:}"
         # Validate both ports are numeric
         if ! [[ "$host_port" =~ ^[0-9]+$ ]] || ! [[ "$container_port" =~ ^[0-9]+$ ]]; then
-          echo "Warning: Invalid port specification: $port_spec" >&2
+          warn "Invalid port specification: $port_spec"
         # Validate ports are in the valid TCP/UDP range
         elif [ "$host_port" -lt 1 ] || [ "$host_port" -gt 65535 ] || [ "$container_port" -lt 1 ] || [ "$container_port" -gt 65535 ]; then
-          echo "Warning: Port out of range (1-65535): $port_spec" >&2
+          warn "Port out of range (1-65535): $port_spec"
         else
           # Bind to localhost only (127.0.0.1) to prevent external access
           extra_ports+=(-p "127.0.0.1:$port_spec")
@@ -392,7 +392,7 @@ if [ -f ".claudebox.json" ]; then
   fi
 else
   if [ -n "$profile_name" ]; then
-    echo "Error: --profile '$profile_name' specified but no .claudebox.json found in $(pwd)" >&2
+    error "--profile '$profile_name' specified but no .claudebox.json found in $(pwd)"
     exit 1
   fi
 fi
@@ -405,39 +405,39 @@ if git -C "$workdir" rev-parse --git-dir &>/dev/null; then
   git_dir="$(cd "$workdir" && git rev-parse --absolute-git-dir)"
   normalized_git_dir=$(normalize_path "$git_dir")
   if is_path_blocked "$normalized_git_dir"; then
-    echo "Error: Git directory blocked (security policy): $git_dir" >&2
+    error "Git directory blocked (security policy): $git_dir"
     exit 1
   elif [ -L "$git_dir" ]; then
     real_git_path=$(readlink -f "$git_dir" 2>/dev/null || echo "unresolved")
-    echo "Error: Git directory is a symlink (security policy): $git_dir → $real_git_path" >&2
+    error "Git directory is a symlink (security policy): $git_dir → $real_git_path"
     exit 1
   fi
   extra_mounts+=(-v "$git_dir:$git_dir:ro")
 else
-  echo "Warning: Not inside a git repository. Working directory will be writable." >&2
+  warn "Not inside a git repository. Working directory will be writable."
 fi
 
 # --- Network mode ---
 # Default is "bridge" (normal Docker networking); "none" disables all networking
 network_args=()
-[[ ! "${network_mode:-bridge}" =~ ^(bridge|none)$ ]] && { echo "Error: Unsupported network mode '$network_mode' (allowed: bridge, none)" >&2; exit 1; }
+[[ ! "${network_mode:-bridge}" =~ ^(bridge|none)$ ]] && { error "Unsupported network mode '$network_mode' (allowed: bridge, none)"; exit 1; }
 [[ "${network_mode:-}" == "none" ]] && network_args=(--network none)
 
 # --- Resource limit validation ---
 if [ -n "${profile_cpu:-}" ] && ! [[ "$profile_cpu" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
-  echo "Error: Invalid cpu format '$profile_cpu' (expected: integer or decimal, e.g. '4' or '1.5')" >&2; exit 1
+  error "Invalid cpu format '$profile_cpu' (expected: integer or decimal, e.g. '4' or '1.5')"; exit 1
 fi
 if [ -n "${profile_memory:-}" ] && ! [[ "$profile_memory" =~ ^[0-9]+[bkmgBKMG]?$ ]]; then
-  echo "Error: Invalid memory format '$profile_memory' (expected: number with optional unit, e.g. '4g' or '512m')" >&2; exit 1
+  error "Invalid memory format '$profile_memory' (expected: number with optional unit, e.g. '4g' or '512m')"; exit 1
 fi
 if [ -n "${profile_pids_limit:-}" ] && ! [[ "$profile_pids_limit" =~ ^[0-9]+$ ]]; then
-  echo "Error: Invalid pids_limit format '$profile_pids_limit' (expected: integer, e.g. '256')" >&2; exit 1
+  error "Invalid pids_limit format '$profile_pids_limit' (expected: integer, e.g. '256')"; exit 1
 fi
 if [ -n "${profile_ulimit_nofile:-}" ] && ! [[ "$profile_ulimit_nofile" =~ ^[0-9]+(:[0-9]+)?$ ]]; then
-  echo "Error: Invalid ulimit_nofile format '$profile_ulimit_nofile' (expected: 'soft:hard' or 'value', e.g. '1024:2048')" >&2; exit 1
+  error "Invalid ulimit_nofile format '$profile_ulimit_nofile' (expected: 'soft:hard' or 'value', e.g. '1024:2048')"; exit 1
 fi
 if [ -n "${profile_ulimit_fsize:-}" ] && ! [[ "$profile_ulimit_fsize" =~ ^[0-9]+$ ]]; then
-  echo "Error: Invalid ulimit_fsize format '$profile_ulimit_fsize' (expected: integer bytes, e.g. '1073741824')" >&2; exit 1
+  error "Invalid ulimit_fsize format '$profile_ulimit_fsize' (expected: integer bytes, e.g. '1073741824')"; exit 1
 fi
 
 # --- Resource limits ---
@@ -454,10 +454,10 @@ resource_args+=(--pids-limit "${profile_pids_limit:-$DEFAULT_PIDS_LIMIT}")
 run_image="$IMAGE_NAME"
 if [ -f ".claudebox.Dockerfile" ]; then
   run_image="${IMAGE_NAME}-project"
-  echo "Building per-project image..." >&2
+  step "Building per-project image"
   # Build quietly (-q) since this runs on every invocation
   if ! docker build -q -f .claudebox.Dockerfile -t "$run_image" . >&2; then
-    echo "Error: Failed to build per-project image from .claudebox.Dockerfile" >&2
+    error "Failed to build per-project image from .claudebox.Dockerfile"
     exit 1
   fi
 fi
@@ -479,8 +479,8 @@ fi
 # --- Seccomp profile validation ---
 # Ensure the seccomp profile exists before running the container
 if [ ! -f "$SECCOMP_PROFILE" ]; then
-  echo "Error: Seccomp profile not found at $SECCOMP_PROFILE" >&2
-  echo "Please reinstall claudebox." >&2
+  error_block "Seccomp profile not found at $SECCOMP_PROFILE" \
+    "Please reinstall claudebox."
   exit 1
 fi
 
@@ -561,13 +561,13 @@ docker_cmd=(
 # --- Dry run mode ---
 # Print the full command for debugging instead of executing it
 if [ "$dry_run" = true ]; then
-  echo "--- claudebox dry-run ---" >&2
-  [ -n "$profile_name" ] && echo "Profile: $profile_name" >&2
-  [ -n "${extra_mounts_info:-}" ] && { echo "Mounts:" >&2; echo "$extra_mounts_info" >&2; }
-  [ ${#extra_ports[@]} -gt 0 ] && echo "Ports: ${extra_ports[*]}" >&2
-  [ "${network_mode:-bridge}" != "bridge" ] && echo "Network: ${network_mode:-bridge}" >&2
-  [ "$readonly_mode" = true ] && echo "Readonly: true" >&2
-  echo "---" >&2
+  section "dry-run" >&2
+  [ -n "$profile_name" ] && list_item "Profile" "$profile_name" >&2
+  [ -n "${extra_mounts_info:-}" ] && { list_item "Mounts" "" >&2; echo "$extra_mounts_info" >&2; }
+  [ ${#extra_ports[@]} -gt 0 ] && list_item "Ports" "${extra_ports[*]}" >&2
+  [ "${network_mode:-bridge}" != "bridge" ] && list_item "Network" "${network_mode:-bridge}" >&2
+  [ "$readonly_mode" = true ] && list_item "Readonly" "true" >&2
+  echo "" >&2
   # Use printf %q for shell-safe quoting of each argument
   printf '%q ' "${docker_cmd[@]}"
   echo
@@ -595,7 +595,7 @@ if [ "$audit_log" = "true" ]; then
   docker logs "$container_name" > "$log_file" 2>&1 || true
   # Remove the named container now that logs are captured
   docker rm "$container_name" &>/dev/null || true
-  echo "Session log: $log_file" >&2
+  info "Session log: $log_file"
 
   # Remove the trap and exit with the container's exit code
   trap - INT TERM

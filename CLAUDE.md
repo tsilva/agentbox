@@ -15,11 +15,13 @@ claudebox/
 ├── entrypoint.sh           # Container entrypoint (sandbox awareness, venv activation)
 ├── install.sh              # Self-contained installer (dual-mode: curl pipe + local repo)
 ├── uninstall.sh            # Standalone uninstaller
+├── style.sh                # Terminal styling library (sourced by install.sh, uninstall.sh)
 ├── scripts/
 │   ├── claudebox-dev.sh        # Dev CLI (build/kill/update)
 │   ├── claudebox-template.sh   # Standalone script template
 │   ├── install-claude-code.sh  # Claude Code installer
-│   └── seccomp.json            # Syscall filtering profile
+│   ├── seccomp.json            # Syscall filtering profile
+│   └── style.sh                # Terminal styling library (sourced by dev/template scripts)
 ├── tests/
 │   ├── smoke-test.sh           # Basic functionality tests
 │   ├── isolation-test.sh       # Filesystem isolation tests

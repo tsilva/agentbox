@@ -3,6 +3,7 @@
 !VERSION
 logo.png
 TODO.md
+style.sh
 examples/
 tests/
 .github/

@@ -9,6 +9,11 @@
 
 set -euo pipefail
 
+# Source terminal styling library (graceful fallback to plain echo)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd 2>/dev/null)" || true
+# shellcheck source=style.sh
+source "${SCRIPT_DIR:-}/style.sh" 2>/dev/null || true
+
 # Docker image name used for building and running containers
 IMAGE_NAME="claudebox"
 # Name of the installed CLI command the user will invoke
@@ -23,13 +28,13 @@ CLONE_DIR="$HOME/.claudebox/repo"
 # When run as a file, it resolves to the script path.
 if [ -z "${BASH_SOURCE[0]:-}" ] || [ ! -f "${BASH_SOURCE[0]}" ]; then
   # Curl-pipe mode: clone/update repo, then re-exec the cloned install.sh
-  echo "Installing claudebox..."
+  header "claudebox" "installer"
 
   if [ -d "$CLONE_DIR" ]; then
-    echo "Updating existing installation..."
+    step "Updating existing installation"
     git -C "$CLONE_DIR" pull --ff-only
   else
-    echo "Cloning repository..."
+    step "Cloning repository"
     mkdir -p "$(dirname "$CLONE_DIR")"
     git clone "$REPO_URL" "$CLONE_DIR"
   fi
@@ -55,22 +60,22 @@ detect_shell_rc() {
     echo "$HOME/.bashrc"
   else
     echo "$HOME/.zshrc"
-    echo "Warning: Neither .zshrc nor .bashrc found, creating $HOME/.zshrc" >&2
-    echo "If you use a different shell, add the function to your shell config manually." >&2
+    warn "Neither .zshrc nor .bashrc found, creating $HOME/.zshrc"
+    note "If you use a different shell, add the function to your shell config manually."
   fi
 }
 
 # Check if Docker CLI is available and the daemon is running.
 check_runtime() {
   if ! command -v docker &>/dev/null; then
-    echo "Error: Docker is not installed or not in PATH"
-    echo "Please install Docker Desktop: https://docs.docker.com/get-docker/"
+    error_block "Docker is not installed or not in PATH" \
+      "Please install Docker Desktop: https://docs.docker.com/get-docker/"
     exit 1
   fi
 
   if ! docker info &>/dev/null; then
-    echo "Error: Docker daemon is not running." >&2
-    echo "Please start Docker Desktop and try again." >&2
+    error_block "Docker daemon is not running" \
+      "Please start Docker Desktop and try again."
     exit 1
   fi
 }
@@ -79,7 +84,7 @@ check_runtime() {
 do_build() {
   check_runtime
 
-  echo "Building $IMAGE_NAME image..."
+  step "Building $IMAGE_NAME image"
   local build_args=()
   local old_id=""
   if [ "$update_mode" = true ]; then
@@ -111,19 +116,19 @@ do_build() {
     printf '%s' "$installed_version" > "$HOME/.claudebox/version"
   fi
 
-  echo ""
-  echo "Done! Image '$IMAGE_NAME' is ready."
+  success "Image '$IMAGE_NAME' is ready"
 }
 
 # Build the image and install the standalone CLI script to ~/.claudebox/bin/
 do_install() {
   if [ "$update_mode" = false ] && [ -f "$HOME/.claudebox/bin/$SCRIPT_NAME" ]; then
-    echo "Error: claudebox is already installed."
-    echo "To reinstall, first run: ./uninstall.sh"
-    echo "To update, run: claudebox update"
+    error_block "claudebox is already installed" \
+      "To reinstall, first run: ./uninstall.sh" \
+      "To update, run: claudebox update"
     exit 1
   fi
 
+  header "claudebox" "installer"
   do_build
 
   local shell_rc
@@ -138,18 +143,22 @@ do_install() {
   sed "s|PLACEHOLDER_IMAGE_NAME|$IMAGE_NAME|g" \
     "${REPO_ROOT}/scripts/claudebox-template.sh" > "$script_path"
   chmod +x "$script_path"
-  echo "Installed $script_path"
+  success "Installed $script_path"
 
   # Copy the seccomp profile to the install directory
   cp "${REPO_ROOT}/scripts/seccomp.json" "$HOME/.claudebox/seccomp.json"
-  echo "Installed $HOME/.claudebox/seccomp.json"
+  success "Installed $HOME/.claudebox/seccomp.json"
+
+  # Copy the style library for the standalone CLI
+  cp "${REPO_ROOT}/scripts/style.sh" "$bin_dir/style.sh"
+  success "Installed $bin_dir/style.sh"
 
   # Store repo path so `claudebox update` can find the source tree
   printf '%s' "$REPO_ROOT" > "$HOME/.claudebox/.repo-path"
 
   # Create alias symlink
   ln -sf "$SCRIPT_NAME" "$bin_dir/claudes"
-  echo "Installed $bin_dir/claudes (alias)"
+  success "Installed $bin_dir/claudes (alias)"
 
   # Add the bin directory to PATH in the user's shell config (idempotent)
   # shellcheck disable=SC2016
@@ -160,22 +169,16 @@ do_install() {
       echo "# claudebox"
       echo "$path_line"
     } >> "$shell_rc"
-    echo "Added PATH entry to $shell_rc"
+    success "Added PATH entry to $shell_rc"
   else
-    echo "PATH entry already present in $shell_rc"
+    info "PATH entry already present in $shell_rc"
   fi
 
-  # Print post-install instructions
+  banner "Installation complete!"
+  list_item "Activate" "source $shell_rc"
+  list_item "Run" "cd <your-project> && $SCRIPT_NAME"
+  list_item "Shell" "$SCRIPT_NAME shell"
   echo ""
-  echo "Installation complete!"
-  echo ""
-  echo "Run: source $shell_rc"
-  echo ""
-  echo "Then from any project directory:"
-  echo "  cd <your-project> && $SCRIPT_NAME"
-  echo ""
-  echo "To inspect the sandbox environment:"
-  echo "  $SCRIPT_NAME shell"
 }
 
 do_install
