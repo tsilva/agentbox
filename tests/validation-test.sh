@@ -396,5 +396,84 @@ rmdir /tmp/test-mount-rw /tmp/test-mount-ro 2>/dev/null || true
 
 teardown_test_dir
 
+# --- Test: Config detection ---
+echo ""
+echo "--- Config Detection ---"
+
+setup_test_dir
+git init -q
+
+# Test: --profile with no config file should error
+output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
+assert_contains "$output" "no .claudebox.json found" "error when --profile but no config"
+
+# Test: No config file and no --profile should NOT error about config
+output=$("$PROCESSED_TEMPLATE" --dry-run 2>&1)
+assert_not_contains "$output" ".claudebox.json" "no spurious config message without --profile"
+
+teardown_test_dir
+
+# --- Test: Dry-run summary ---
+echo ""
+echo "--- Dry-run Summary ---"
+
+setup_test_dir
+git init -q
+
+mkdir -p /tmp/test-dryrun-mount
+cat > .claudebox.json << 'EOF'
+{
+  "dev": {
+    "mounts": [
+      {"path": "/tmp/test-dryrun-mount", "readonly": true}
+    ],
+    "ports": [
+      {"host": 3000, "container": 3000}
+    ]
+  }
+}
+EOF
+output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
+assert_contains "$output" "Profile: dev" "dry-run shows profile"
+assert_contains "$output" "/tmp/test-dryrun-mount" "dry-run shows mount paths"
+assert_contains "$output" "Ports:" "dry-run shows ports"
+assert_contains "$output" "claudebox dry-run" "dry-run shows summary header"
+
+rmdir /tmp/test-dryrun-mount 2>/dev/null || true
+
+teardown_test_dir
+
+# --- Test: Profile confirmation ---
+echo ""
+echo "--- Profile Confirmation ---"
+
+setup_test_dir
+git init -q
+
+cat > .claudebox.json << 'EOF'
+{"dev":{}}
+EOF
+output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
+assert_contains "$output" "Using profile:" "explicit --profile shows confirmation"
+
+teardown_test_dir
+
+# --- Test: Parse error visibility ---
+echo ""
+echo "--- Parse Error Visibility ---"
+
+setup_test_dir
+git init -q
+
+# Test: Profile with invalid mounts type should show jq error (not silently swallowed)
+cat > .claudebox.json << 'EOF'
+{"dev": {"mounts": "not-an-array"}}
+EOF
+output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
+# jq should produce an error since .mounts is not iterable as an array
+assert_not_contains "$output" "CLAUDEBOX_EXTRA_MOUNTS=$" "parse error not silently swallowed"
+
+teardown_test_dir
+
 # --- Summary ---
 summary

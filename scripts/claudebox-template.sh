@@ -248,7 +248,6 @@ if [ -f ".claudebox.json" ]; then
     # If no profile was specified via flag, auto-select or prompt interactively
     if [ -z "$profile_name" ] && [ "$profile_count" -eq 1 ]; then
       profile_name=$(jq -r 'keys[0]' .claudebox.json)
-      echo "Using profile: $profile_name" >&2
     elif [ -z "$profile_name" ] && [ "$profile_count" -gt 1 ]; then
       # Read profile names into an array for the select menu (compatible with Bash 3)
       profile_array=()
@@ -269,6 +268,8 @@ if [ -f ".claudebox.json" ]; then
         exit 1
       fi
 
+      echo "Using profile: $profile_name" >&2
+
       # Extract all profile settings in a single jq call for efficiency.
       # Produces a normalized JSON object with mounts, ports, and scalar options.
       profile_config=$(jq -r --arg p "$profile_name" '
@@ -283,7 +284,12 @@ if [ -f ".claudebox.json" ]; then
           ulimit_nofile: (.ulimit_nofile // null),
           ulimit_fsize: (.ulimit_fsize // null)
         }
-      ' .claudebox.json 2>/dev/null)
+      ' .claudebox.json)
+
+      if [ -z "$profile_config" ]; then
+        echo "Error: Failed to parse profile '$profile_name' from .claudebox.json" >&2
+        exit 1
+      fi
 
       # Parse mount specifications and validate each one
       while IFS= read -r mount_spec; do
@@ -362,6 +368,11 @@ if [ -f ".claudebox.json" ]; then
       [[ "$profile_ulimit_nofile" == "_" ]] && profile_ulimit_nofile=""
       [[ "$profile_ulimit_fsize" == "_" ]] && profile_ulimit_fsize=""
     fi
+  fi
+else
+  if [ -n "$profile_name" ]; then
+    echo "Error: --profile '$profile_name' specified but no .claudebox.json found in $(pwd)" >&2
+    exit 1
   fi
 fi
 
@@ -529,6 +540,13 @@ docker_cmd=(
 # --- Dry run mode ---
 # Print the full command for debugging instead of executing it
 if [ "$dry_run" = true ]; then
+  echo "--- claudebox dry-run ---" >&2
+  [ -n "$profile_name" ] && echo "Profile: $profile_name" >&2
+  [ -n "${extra_mounts_info:-}" ] && { echo "Mounts:" >&2; echo "$extra_mounts_info" >&2; }
+  [ ${#extra_ports[@]} -gt 0 ] && echo "Ports: ${extra_ports[*]}" >&2
+  [ "${network_mode:-bridge}" != "bridge" ] && echo "Network: ${network_mode:-bridge}" >&2
+  [ "$readonly_mode" = true ] && echo "Readonly: true" >&2
+  echo "---" >&2
   # Use printf %q for shell-safe quoting of each argument
   printf '%q ' "${docker_cmd[@]}"
   echo
