@@ -111,6 +111,13 @@ do_build() {
 
 # Build the image and install the standalone CLI script to ~/.claudebox/bin/
 do_install() {
+  if [ "$update_mode" = false ] && [ -f "$HOME/.claudebox/bin/$SCRIPT_NAME" ]; then
+    echo "Error: claudebox is already installed."
+    echo "To reinstall, first run: ./uninstall.sh"
+    echo "To update, run: claudebox update"
+    exit 1
+  fi
+
   do_build
 
   local shell_rc
