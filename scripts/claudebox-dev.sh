@@ -108,6 +108,7 @@ case "$cmd" in
     # Pull latest git changes, then rebuild the image
     echo "Pulling latest changes..."
     git -C "$REPO_ROOT" pull
+    rm -f "$HOME/.claudebox/.latest-version"
     do_build
     ;;
   *)
