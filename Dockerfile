@@ -58,17 +58,6 @@ ENV PATH="/home/claude/.local/bin:/opt/uv/bin:/opt/claude-code:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-# --- Claude Code Binary ---
-# Download the Claude Code standalone binary from Google Cloud Storage.
-# The install script handles version detection, architecture mapping,
-# binary download, and SHA256 checksum verification.
-# CACHE_BUST: defaults to "stable" so regular builds use Docker cache.
-# Override with a timestamp (e.g., --build-arg CACHE_BUST=$(date +%s))
-# to force re-downloading the latest Claude Code binary.
-ARG CACHE_BUST=stable
-COPY --chmod=755 --chown=claude:claude scripts/install-claude-code.sh /tmp/install-claude-code.sh
-RUN /tmp/install-claude-code.sh && rm /tmp/install-claude-code.sh
-
 # --- uv (Python package installer) ---
 # Install uv to /opt/uv/bin so it persists on a read-only rootfs.
 # ~/.local is a tmpfs at runtime, so user-local installs would be lost.
@@ -94,3 +83,17 @@ WORKDIR /workspace
 COPY --chmod=755 --chown=claude:claude entrypoint.sh /home/claude/entrypoint.sh
 
 ENTRYPOINT ["/home/claude/entrypoint.sh"]
+
+# --- Claude Code Binary ---
+# Download the Claude Code standalone binary from Google Cloud Storage.
+# The install script handles version detection, architecture mapping,
+# binary download, and SHA256 checksum verification.
+# CACHE_BUST: defaults to "stable" so regular builds use Docker cache.
+# Override with a timestamp (e.g., --build-arg CACHE_BUST=$(date +%s))
+# to force re-downloading the latest Claude Code binary.
+# NOTE: This block is intentionally last so that cache-busting only
+# invalidates the Claude Code download layer (~100MB), not the
+# uv/pytest/entrypoint layers above which rarely change.
+ARG CACHE_BUST=stable
+COPY --chmod=755 --chown=claude:claude scripts/install-claude-code.sh /tmp/install-claude-code.sh
+RUN /tmp/install-claude-code.sh && rm /tmp/install-claude-code.sh

@@ -81,10 +81,22 @@ do_build() {
 
   echo "Building $IMAGE_NAME image..."
   local build_args=()
+  local old_id=""
   if [ "$update_mode" = true ]; then
     build_args+=(--build-arg "CACHE_BUST=$(date +%s)")
+    old_id=$(docker images -q "$IMAGE_NAME:latest" 2>/dev/null || true)
   fi
   docker build ${build_args[@]+"${build_args[@]}"} -t "$IMAGE_NAME" "$REPO_ROOT"
+
+  # Remove the previous image to avoid dangling image accumulation.
+  # docker rmi safely refuses if containers are still using the old image.
+  if [ -n "$old_id" ]; then
+    local new_id
+    new_id=$(docker images -q "$IMAGE_NAME:latest" 2>/dev/null || true)
+    if [ "$old_id" != "$new_id" ]; then
+      docker rmi "$old_id" 2>/dev/null || true
+    fi
+  fi
 
   # Extract the baked-in Claude Code version so the host CLI can check for updates
   installed_version=$(docker run --rm --entrypoint cat "$IMAGE_NAME" /opt/claude-code/VERSION 2>/dev/null) || true
