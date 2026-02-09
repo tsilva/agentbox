@@ -56,9 +56,57 @@ do_uninstall() {
     exit 0
   fi
 
-  # Remove the Docker image (ignore errors if already removed)
-  step "Removing $IMAGE_NAME image"
-  docker image rm "$IMAGE_NAME" 2>/dev/null || dim "Image not found, skipping"
+  # All image variants that may exist
+  local images=("claudebox" "claudebox-test" "claudebox-project")
+
+  # Step 1: Stop running containers from any variant image
+  step "Stopping running containers"
+  local found_running=false
+  for img in "${images[@]}"; do
+    local containers
+    containers=$(docker ps -q --filter "ancestor=$img" 2>/dev/null) || true
+    for id in $containers; do
+      found_running=true
+      list_item "Stopping" "$id ($img)"
+      docker stop "$id" 2>/dev/null || docker kill "$id" 2>/dev/null || true
+    done
+  done
+  $found_running || dim "No running containers found"
+
+  # Step 2: Remove stopped containers
+  step "Removing stopped containers"
+  local found_stopped=false
+  # Pass 1: containers still linked to a known image
+  for img in "${images[@]}"; do
+    local stopped
+    stopped=$(docker ps -aq --filter "ancestor=$img" 2>/dev/null) || true
+    for id in $stopped; do
+      found_stopped=true
+      list_item "Removing" "$id ($img)"
+      docker rm "$id" 2>/dev/null || true
+    done
+  done
+  # Pass 2: orphaned audit containers (name starts with claudebox-)
+  local orphans
+  orphans=$(docker ps -aq --filter "name=claudebox-" 2>/dev/null) || true
+  for id in $orphans; do
+    found_stopped=true
+    list_item "Removing orphan" "$id"
+    docker rm "$id" 2>/dev/null || true
+  done
+  $found_stopped || dim "No stopped containers found"
+
+  # Step 3: Remove images
+  step "Removing Docker images"
+  local found_image=false
+  for img in "${images[@]}"; do
+    if docker image inspect "$img" &>/dev/null; then
+      found_image=true
+      docker image rm "$img" 2>/dev/null || true
+      success "Removed image $img"
+    fi
+  done
+  $found_image || dim "No images found"
 
   # Remove the standalone CLI script from ~/.claudebox/bin/
   local script_path="$HOME/.claudebox/bin/$SCRIPT_NAME"
