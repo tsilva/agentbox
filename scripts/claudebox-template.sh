@@ -145,7 +145,28 @@ if [ "$first_cmd" = "update" ]; then
     exit 1
   fi
   echo "Updating from $repo_path..."
+
+  # Capture HEAD before/after git pull to detect repo changes
+  git_before=$(git -C "$repo_path" rev-parse HEAD)
   git -C "$repo_path" pull --ff-only
+  git_after=$(git -C "$repo_path" rev-parse HEAD)
+
+  # Check if upstream Claude Code version differs from installed
+  installed_version=""
+  latest_version=""
+  version_file="$HOME/.claudebox/version"
+  if [ -f "$version_file" ]; then
+    installed_version=$(<"$version_file")
+  fi
+  latest_version=$(curl -fsSL --max-time 5 \
+    "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/latest" 2>/dev/null) || true
+
+  # If neither repo nor Claude Code version changed, skip rebuild
+  if [ "$git_before" = "$git_after" ] && [ -n "$installed_version" ] && [ -n "$latest_version" ] && [ "$installed_version" = "$latest_version" ]; then
+    echo "Already up to date."
+    exit 0
+  fi
+
   rm -f "$HOME/.claudebox/.latest-version"
   exec "$repo_path/install.sh" --update
 fi
