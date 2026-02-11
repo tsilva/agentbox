@@ -124,14 +124,17 @@ do_build() {
 
 # Build the image and install the standalone CLI script to ~/.claudebox/bin/
 do_install() {
-  if [ "$update_mode" = false ] && [ -f "$HOME/.claudebox/bin/$SCRIPT_NAME" ]; then
-    error_block "claudebox is already installed" \
-      "To reinstall, first run: ./uninstall.sh" \
-      "To update, run: claudebox update"
-    exit 1
-  fi
-
   header "claudebox" "installer"
+
+  if [ "$update_mode" = false ] && [ -f "$HOME/.claudebox/bin/$SCRIPT_NAME" ]; then
+    warn "claudebox is already installed"
+    confirm "Reinstall?"
+    if [[ ! "$REPLY" =~ ^[Yy]$ ]]; then
+      info "Install cancelled"
+      exit 0
+    fi
+    "$REPO_ROOT/uninstall.sh" --yes
+  fi
   do_build
 
   local shell_rc

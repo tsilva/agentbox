@@ -13,6 +13,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=style.sh
 [[ -f "$SCRIPT_DIR/style.sh" ]] && source "$SCRIPT_DIR/style.sh" || true
 
+# Parse --yes flag (skip confirmation prompt)
+auto_yes=false
+for arg in "$@"; do
+  [ "$arg" = "--yes" ] && auto_yes=true
+done
+
 # Docker image name to remove
 IMAGE_NAME="claudebox"
 # Name of the installed CLI command
@@ -50,10 +56,12 @@ do_uninstall() {
 
   # Prompt for confirmation before destructive operations
   header "claudebox" "uninstaller"
-  confirm "Remove $IMAGE_NAME image and standalone script?"
-  if [[ ! "$REPLY" =~ ^[Yy]$ ]]; then
-    info "Uninstall cancelled"
-    exit 0
+  if [ "$auto_yes" = false ]; then
+    confirm "Remove $IMAGE_NAME image and standalone script?"
+    if [[ ! "$REPLY" =~ ^[Yy]$ ]]; then
+      info "Uninstall cancelled"
+      exit 0
+    fi
   fi
 
   # All image variants that may exist
