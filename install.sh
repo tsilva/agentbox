@@ -86,15 +86,18 @@ do_build() {
 
   step "Building $IMAGE_NAME image"
   local build_args=()
+
+  # Always use latest Claude Code version as cache key so fresh installs
+  # get the newest binary while still reusing cache when version is unchanged.
+  local cache_key
+  cache_key=$(curl -fsSL --max-time 5 \
+    "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/latest" 2>/dev/null) || true
+  [ -z "$cache_key" ] && cache_key="$(date +%s)"
+  build_args+=(--build-arg "CACHE_BUST=$cache_key")
+
+  # Track old image ID for cleanup during updates
   local old_id=""
   if [ "$update_mode" = true ]; then
-    # Use Claude Code version as cache key so Docker caches the download layer
-    # when the version hasn't changed. Fall back to timestamp if fetch fails.
-    local cache_key
-    cache_key=$(curl -fsSL --max-time 5 \
-      "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/latest" 2>/dev/null) || true
-    [ -z "$cache_key" ] && cache_key="$(date +%s)"
-    build_args+=(--build-arg "CACHE_BUST=$cache_key")
     old_id=$(docker images -q "$IMAGE_NAME:latest" 2>/dev/null || true)
   fi
   docker build ${build_args[@]+"${build_args[@]}"} -t "$IMAGE_NAME" "$REPO_ROOT"
