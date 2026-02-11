@@ -503,14 +503,20 @@ fi
 # Use -it for interactive mode (default), -i only for print mode (no TTY needed).
 # Print mode supports piping (cat file | claude -p "summarize") which works with -i.
 if [ "$print_mode" = true ]; then
-  tty_flags="-i"
+  if [ -t 0 ]; then
+    # stdin is a terminal — no piped input, don't keep stdin open
+    tty_flags=()
+  else
+    # stdin is a pipe — keep it open so piped content reaches Claude
+    tty_flags=(-i)
+  fi
 else
-  tty_flags="-it"
+  tty_flags=(-it)
 fi
 
 # Assemble the complete docker run command as an array for safe quoting
 docker_cmd=(
-  docker run "$tty_flags"
+  docker run ${tty_flags[@]+"${tty_flags[@]}"}
   ${container_args[@]+"${container_args[@]}"}
   # Security hardening: drop all Linux capabilities
   --cap-drop=ALL
