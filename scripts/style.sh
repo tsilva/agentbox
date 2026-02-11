@@ -14,7 +14,7 @@
 # ---------------------------------------------------------------------------
 
 # Respect NO_COLOR (https://no-color.org) and non-TTY output
-if [[ -n "${NO_COLOR:-}" ]] || [[ ! -t 1 ]]; then
+if [[ -n "${NO_COLOR:-}" ]] || [[ ! -t 2 ]]; then
     _STYLE_HAS_COLOR=false
 else
     _STYLE_HAS_COLOR=true
@@ -93,19 +93,19 @@ header() {
             --margin "0 0" \
             --width "$width" \
             --align center \
-            "$full_text"
+            "$full_text" >&2
     else
         local len=${#full_text}
         local pad=4
         local total=$((len + pad))
         local line
         line=$(printf '━%.0s' $(seq 1 "$total"))
-        echo ""
-        echo "${_C_BRAND}┏${line}┓${_C_RESET}"
-        echo "${_C_BRAND}┃${_C_RESET}  ${_C_BRAND}${_C_BOLD}${full_text}${_C_RESET}  ${_C_BRAND}┃${_C_RESET}"
-        echo "${_C_BRAND}┗${line}┛${_C_RESET}"
+        echo "" >&2
+        echo "${_C_BRAND}┏${line}┓${_C_RESET}" >&2
+        echo "${_C_BRAND}┃${_C_RESET}  ${_C_BRAND}${_C_BOLD}${full_text}${_C_RESET}  ${_C_BRAND}┃${_C_RESET}" >&2
+        echo "${_C_BRAND}┗${line}┛${_C_RESET}" >&2
     fi
-    echo ""
+    echo "" >&2
 }
 
 # section "text" — Horizontal rule section divider (━━ text ━━━━)
@@ -118,40 +118,40 @@ section() {
     local trail
     trail=$(printf '━%.0s' $(seq 1 "$trail_len"))
 
-    echo ""
-    echo "${_C_BRAND}${_C_BOLD}${prefix}${trail}${_C_RESET}"
-    echo ""
+    echo "" >&2
+    echo "${_C_BRAND}${_C_BOLD}${prefix}${trail}${_C_RESET}" >&2
+    echo "" >&2
 }
 
 # success "text" — ✓ green text
 success() {
-    echo "  ${_C_SUCCESS}✓${_C_RESET} ${_C_SUCCESS}$1${_C_RESET}"
+    echo "  ${_C_SUCCESS}✓${_C_RESET} ${_C_SUCCESS}$1${_C_RESET}" >&2
 }
 
 # error "text" — ✗ red text
 error() {
-    echo "  ${_C_ERROR}✗${_C_RESET} ${_C_ERROR}$1${_C_RESET}"
+    echo "  ${_C_ERROR}✗${_C_RESET} ${_C_ERROR}$1${_C_RESET}" >&2
 }
 
 # warn "text" — ⚠ amber text
 warn() {
-    echo "  ${_C_WARN}⚠${_C_RESET} ${_C_WARN}$1${_C_RESET}"
+    echo "  ${_C_WARN}⚠${_C_RESET} ${_C_WARN}$1${_C_RESET}" >&2
 }
 
 # info "text" — ● blue text
 info() {
-    echo "  ${_C_INFO}●${_C_RESET} ${_C_INFO}$1${_C_RESET}"
+    echo "  ${_C_INFO}●${_C_RESET} ${_C_INFO}$1${_C_RESET}" >&2
 }
 
 # step "text" — → dimmed action log (suppressed in quiet mode)
 step() {
     [[ "$_STYLE_VERBOSITY" -eq 0 ]] && return 0
-    echo "  ${_C_MUTED}→ $1${_C_RESET}"
+    echo "  ${_C_MUTED}→ $1${_C_RESET}" >&2
 }
 
 # note "text" — gray "Note:" prefix
 note() {
-    echo "  ${_C_MUTED}Note: $1${_C_RESET}"
+    echo "  ${_C_MUTED}Note: $1${_C_RESET}" >&2
 }
 
 # confirm "prompt" [timeout_seconds] [affirmative] [negative]
@@ -175,13 +175,13 @@ confirm() {
     else
         local suffix="(y/n)"
         [[ -n "$affirmative" && -n "$negative" ]] && suffix="($affirmative/$negative)"
-        printf "  ${_C_BRAND}▸${_C_RESET} %s ${_C_MUTED}%s${_C_RESET} " "$prompt" "$suffix"
+        printf "  ${_C_BRAND}▸${_C_RESET} %s ${_C_MUTED}%s${_C_RESET} " "$prompt" "$suffix" >&2
         if [[ -n "$timeout" ]]; then
             read -t "$timeout" -n 1 -r || REPLY="n"
         else
             read -n 1 -r
         fi
-        echo ""
+        echo "" >&2
     fi
 }
 
@@ -193,7 +193,7 @@ banner() {
         local width=${#text}
         (( width < 36 )) && width=36
         (( width += 4 ))
-        echo ""
+        echo "" >&2
         gum style \
             --border rounded \
             --border-foreground 114 \
@@ -203,24 +203,24 @@ banner() {
             --margin "0 0" \
             --width "$width" \
             --align center \
-            "$text"
+            "$text" >&2
     else
         local len=${#text}
         local pad=4
         local total=$((len + pad))
         local line
         line=$(printf '━%.0s' $(seq 1 "$total"))
-        echo ""
-        echo "${_C_SUCCESS}┏${line}┓${_C_RESET}"
-        echo "${_C_SUCCESS}┃${_C_RESET}  ${_C_SUCCESS}${_C_BOLD}${text}${_C_RESET}  ${_C_SUCCESS}┃${_C_RESET}"
-        echo "${_C_SUCCESS}┗${line}┛${_C_RESET}"
+        echo "" >&2
+        echo "${_C_SUCCESS}┏${line}┓${_C_RESET}" >&2
+        echo "${_C_SUCCESS}┃${_C_RESET}  ${_C_SUCCESS}${_C_BOLD}${text}${_C_RESET}  ${_C_SUCCESS}┃${_C_RESET}" >&2
+        echo "${_C_SUCCESS}┗${line}┛${_C_RESET}" >&2
     fi
-    echo ""
+    echo "" >&2
 }
 
 # error_block "line1" "line2" ... — Multi-line error with red left border
 error_block() {
-    echo ""
+    echo "" >&2
     if [[ "$_STYLE_HAS_GUM" == true ]]; then
         local content=""
         for line in "$@"; do
@@ -233,25 +233,25 @@ error_block() {
             --foreground 203 \
             --padding "0 1" \
             --margin "0 1" \
-            "$content"
+            "$content" >&2
     else
         for line in "$@"; do
-            echo "  ${_C_ERROR}│${_C_RESET} ${_C_ERROR}$line${_C_RESET}"
+            echo "  ${_C_ERROR}│${_C_RESET} ${_C_ERROR}$line${_C_RESET}" >&2
         done
     fi
-    echo ""
+    echo "" >&2
 }
 
 # list_item "label" "value" — Colored label: value pair
 list_item() {
     local label="${1:-}" value="${2:-}"
-    echo "  ${_C_BRAND}•${_C_RESET} ${_C_BRAND}${_C_BOLD}$label:${_C_RESET} ${_C_MUTED}$value${_C_RESET}"
+    echo "  ${_C_BRAND}•${_C_RESET} ${_C_BRAND}${_C_BOLD}$label:${_C_RESET} ${_C_MUTED}$value${_C_RESET}" >&2
 }
 
 # dim "text" — Gray/muted text (suppressed in quiet mode)
 dim() {
     [[ "$_STYLE_VERBOSITY" -eq 0 ]] && return 0
-    echo "  ${_C_MUTED}$1${_C_RESET}"
+    echo "  ${_C_MUTED}$1${_C_RESET}" >&2
 }
 
 # ---------------------------------------------------------------------------
@@ -318,7 +318,7 @@ table() {
             for row in "$@"; do
                 echo "$row"
             done
-        } | gum table --border.foreground 141 --header.foreground 141 --header.bold
+        } | gum table --border.foreground 141 --header.foreground 141 --header.bold >&2
         return $?
     else
         # ANSI fallback: calculate column widths, render with box-drawing
@@ -357,7 +357,7 @@ table() {
             fi
         done
 
-        echo "${_C_MUTED}${top_line}${_C_RESET}"
+        echo "${_C_MUTED}${top_line}${_C_RESET}" >&2
 
         # Print rows
         local row_idx=0
@@ -373,16 +373,16 @@ table() {
                     line+=" ${_C_MUTED}$(printf "%-${w}s" "$cell")${_C_RESET} │"
                 fi
             done
-            echo "${_C_MUTED}${line}${_C_RESET}"
+            echo "${_C_MUTED}${line}${_C_RESET}" >&2
 
             # Separator after header
             if (( row_idx == 0 )); then
-                echo "${_C_MUTED}${mid_line}${_C_RESET}"
+                echo "${_C_MUTED}${mid_line}${_C_RESET}" >&2
             fi
             ((row_idx++))
         done
 
-        echo "${_C_MUTED}${bot_line}${_C_RESET}"
+        echo "${_C_MUTED}${bot_line}${_C_RESET}" >&2
     fi
 }
 

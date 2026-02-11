@@ -219,7 +219,7 @@ check_version_staleness() {
     warn "Update available ($installed_version → $latest_version) — run: claudebox update"
   fi
 }
-check_version_staleness
+[ "$print_mode" = false ] && check_version_staleness
 
 # --- Dangerous path blocklist ---
 # These paths are blocked to prevent exposing sensitive host system data
