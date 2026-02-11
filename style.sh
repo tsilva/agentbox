@@ -6,7 +6,7 @@
 # Uses gum (charmbracelet) for borders, spinners, and interactive widgets.
 # Falls back to ANSI 256-color + Unicode for everything else.
 #
-# Usage: source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/style.sh" 2>/dev/null || true
+# Usage: [[ -f style.sh ]] && source style.sh || true
 #
 
 # ---------------------------------------------------------------------------

@@ -13,7 +13,7 @@ set -euo pipefail
 # Source terminal styling library (graceful fallback to plain echo)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/style.sh
-source "$SCRIPT_DIR/style.sh" 2>/dev/null || true
+[[ -f "$SCRIPT_DIR/style.sh" ]] && source "$SCRIPT_DIR/style.sh" || true
 
 # Docker image name (replaced at install time by do_install)
 IMAGE_NAME="PLACEHOLDER_IMAGE_NAME"
