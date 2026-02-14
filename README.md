@@ -398,3 +398,7 @@ Found a bug or have an idea? [Open an issue](https://github.com/tsilva/claudebox
 ## 📄 License
 
 MIT
+
+## License
+
+MIT
