@@ -54,8 +54,6 @@ Thumbs.db
 
 *.tape
 
-.claude/settings.local.json
-
 # Managed by tsilva/.github
 # Do not remove - synced automatically
 .claude/*.local.json
