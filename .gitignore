@@ -56,8 +56,32 @@ Thumbs.db
 
 .claude/settings.local.json
 
-
 # Managed by tsilva/.github
 # Do not remove - synced automatically
-.claude/
+.claude/*.local.json
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+credentials.json
+secrets.json
+.secrets/
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/settings.json
+*.swp
+*.swo
+__pycache__/
 *.pyc
+.venv/
+venv/
+*.egg-info/
+node_modules/
+dist/
+build/
+logs/
+*.log
