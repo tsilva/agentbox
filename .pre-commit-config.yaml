@@ -1,5 +1,0 @@
-repos:
-  - repo: https://github.com/tsilva/.github
-    rev: main
-    hooks:
-      - id: gitleaks
