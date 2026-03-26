@@ -87,12 +87,15 @@ SECCOMP_PROFILE="$HOME/.claudebox/seccomp.json"
 HOST_CLAUDE_DIR="$HOME/.claude"
 HOST_CLAUDE_STATE_FILE="$HOME/.claude.json"
 HOST_CREDENTIALS_FILE="$HOST_CLAUDE_DIR/.credentials.json"
+HOST_KEYCHAIN_SERVICE="Claude Code-credentials"
 CLAUDEBOX_STATE_DIR="$HOME/.claudebox"
 SANDBOX_CLAUDE_DIR="$CLAUDEBOX_STATE_DIR/claude-config"
 SANDBOX_DOTCONFIG_DIR="$CLAUDEBOX_STATE_DIR/claude-dotconfig"
 SANDBOX_PLUGINS_DIR="$CLAUDEBOX_STATE_DIR/plugins"
 SANDBOX_CLAUDE_STATE_FILE="$CLAUDEBOX_STATE_DIR/.claude.json"
 SANDBOX_CREDENTIALS_FILE="$SANDBOX_CLAUDE_DIR/.credentials.json"
+KEYCHAIN_AUTH_ERROR=""
+HOST_KEYCHAIN_CREDENTIALS_JSON=""
 
 mkdir -p "$SANDBOX_CLAUDE_DIR"
 mkdir -p "$SANDBOX_DOTCONFIG_DIR"
@@ -116,57 +119,101 @@ sync_directory() {
   fi
 }
 
-json_file_has_auth_value() {
-  local file="$1"
-  local mode="$2"
-
-  [ -f "$file" ] || return 1
-
+json_input_has_auth_value() {
   perl -MJSON::PP -e '
     use strict;
     use warnings;
 
-    my ($path, $mode) = @ARGV;
     local $/;
-
-    open my $fh, "<", $path or exit 1;
-    my $content = <$fh>;
+    my $content = <STDIN>;
     my $data = eval { decode_json($content) };
     exit 1 if $@ || ref($data) ne "HASH";
 
-    if ($mode eq "credentials") {
-      my $oauth = $data->{claudeAiOauth};
-      exit(
-        ref($oauth) eq "HASH"
-        && defined($oauth->{refreshToken})
-        && $oauth->{refreshToken} ne ""
-          ? 0
-          : 1
-      );
-    }
+    my $oauth = $data->{claudeAiOauth};
+    exit(
+      ref($oauth) eq "HASH"
+      && defined($oauth->{refreshToken})
+      && $oauth->{refreshToken} ne ""
+        ? 0
+        : 1
+    );
+  ' >/dev/null 2>&1
+}
 
-    if ($mode eq "state") {
-      my $oauth_account = $data->{oauthAccount};
-      exit(
-        ref($oauth_account) eq "HASH"
-        && scalar(keys %{$oauth_account}) > 0
-          ? 0
-          : 1
-      );
-    }
+json_file_has_auth_value() {
+  local file="$1"
 
-    exit 1;
-  ' "$file" "$mode" >/dev/null 2>&1
+  [ -f "$file" ] || return 1
+  json_input_has_auth_value < "$file"
+}
+
+json_string_has_auth_value() {
+  local content="${1:-}"
+
+  [ -n "$content" ] || return 1
+  printf '%s' "$content" | json_input_has_auth_value
+}
+
+host_keychain_account() {
+  if [ -n "${USER:-}" ]; then
+    printf '%s\n' "$USER"
+    return 0
+  fi
+
+  id -un 2>/dev/null || true
+}
+
+read_host_keychain_credentials() {
+  local account keychain_output
+
+  KEYCHAIN_AUTH_ERROR=""
+  HOST_KEYCHAIN_CREDENTIALS_JSON=""
+  account="$(host_keychain_account)"
+  [ -n "$account" ] || return 1
+  command -v security >/dev/null 2>&1 || return 1
+
+  if keychain_output="$(security find-generic-password -a "$account" -s "$HOST_KEYCHAIN_SERVICE" -w 2>&1)"; then
+    HOST_KEYCHAIN_CREDENTIALS_JSON="$keychain_output"
+    return 0
+  fi
+
+  KEYCHAIN_AUTH_ERROR="$keychain_output"
+  return 1
+}
+
+keychain_auth_available() {
+  if read_host_keychain_credentials; then
+    json_string_has_auth_value "$HOST_KEYCHAIN_CREDENTIALS_JSON"
+  else
+    return 1
+  fi
+}
+
+keychain_auth_denied() {
+  [ -n "$KEYCHAIN_AUTH_ERROR" ] || return 1
+
+  case "$KEYCHAIN_AUTH_ERROR" in
+    *"The specified item could not be found in the keychain."*)
+      return 1
+      ;;
+  esac
+
+  return 0
 }
 
 host_auth_available() {
-  json_file_has_auth_value "$HOST_CREDENTIALS_FILE" "credentials" && return 0
-  json_file_has_auth_value "$HOST_CLAUDE_STATE_FILE" "state" && return 0
-  return 1
+  json_file_has_auth_value "$HOST_CREDENTIALS_FILE" || keychain_auth_available
 }
 
 require_host_auth() {
   host_auth_available && return 0
+
+  if keychain_auth_denied; then
+    error_block "Host Claude login could not be read from macOS Keychain." \
+      "Approve read access to '$HOST_KEYCHAIN_SERVICE' for the current user and retry." \
+      "claudebox only reads that specific keychain item when ~/.claude/.credentials.json is absent."
+    exit 1
+  fi
 
   error_block "No host Claude login detected." \
     "Run 'claude' on the host and complete /login before starting claudebox." \
@@ -185,8 +232,11 @@ sync_host_auth_state() {
 
   # Claude Code may still use ~/.claude/.credentials.json on some installs. If
   # the host no longer has this file, remove any stale sandbox copy.
-  if [ -f "$HOST_CREDENTIALS_FILE" ]; then
+  if json_file_has_auth_value "$HOST_CREDENTIALS_FILE"; then
     cp "$HOST_CREDENTIALS_FILE" "$SANDBOX_CREDENTIALS_FILE" 2>/dev/null || true
+    chmod 600 "$SANDBOX_CREDENTIALS_FILE" 2>/dev/null || true
+  elif read_host_keychain_credentials && json_string_has_auth_value "$HOST_KEYCHAIN_CREDENTIALS_JSON"; then
+    printf '%s\n' "$HOST_KEYCHAIN_CREDENTIALS_JSON" > "$SANDBOX_CREDENTIALS_FILE" 2>/dev/null || true
     chmod 600 "$SANDBOX_CREDENTIALS_FILE" 2>/dev/null || true
   else
     rm -f "$SANDBOX_CREDENTIALS_FILE" 2>/dev/null || true

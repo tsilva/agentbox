@@ -62,6 +62,70 @@ exit 99
 EOF
   chmod +x "$fake_bin/docker"
   FAKE_DOCKER_PATH="$fake_bin:$PATH"
+  FAKE_TOOLS_PATH="$FAKE_DOCKER_PATH"
+}
+
+setup_fake_security() {
+  local fake_bin="$TEST_DIR/fake-bin"
+
+  mkdir -p "$fake_bin"
+  cat > "$fake_bin/security" <<'EOF'
+#!/bin/sh
+set -eu
+
+command_name="${1:-}"
+shift || true
+
+if [ "$command_name" != "find-generic-password" ]; then
+  echo "fake security only supports find-generic-password" >&2
+  exit 2
+fi
+
+service=""
+account=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -s)
+      service="$2"
+      shift 2
+      ;;
+    -a)
+      account="$2"
+      shift 2
+      ;;
+    -w)
+      shift
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+
+expected_service="${FAKE_SECURITY_EXPECTED_SERVICE:-Claude Code-credentials}"
+expected_account="${FAKE_SECURITY_EXPECTED_ACCOUNT:-${USER:-}}"
+
+if [ "$service" != "$expected_service" ] || [ "$account" != "$expected_account" ]; then
+  echo "security: SecKeychainSearchCopyNext: The specified item could not be found in the keychain." >&2
+  exit 44
+fi
+
+case "${FAKE_SECURITY_MODE:-not_found}" in
+  success)
+    cat "${FAKE_SECURITY_PAYLOAD_FILE}"
+    ;;
+  denied)
+    echo "security: SecKeychainSearchCopyNext: User interaction is not allowed." >&2
+    exit 51
+    ;;
+  *)
+    echo "security: SecKeychainSearchCopyNext: The specified item could not be found in the keychain." >&2
+    exit 44
+    ;;
+esac
+EOF
+  chmod +x "$fake_bin/security"
+  FAKE_TOOLS_PATH="$fake_bin:$PATH"
 }
 
 assert_docker_not_invoked() {
@@ -657,9 +721,10 @@ setup_test_dir
 setup_fake_home
 fake_home="$LAST_FAKE_HOME"
 setup_fake_docker
+setup_fake_security
 mkdir -p "$fake_home/.claudebox/claude-config"
 
-output=$(HOME="$fake_home" PATH="$FAKE_DOCKER_PATH" "$PROCESSED_TEMPLATE" -p "hello" 2>&1 || true)
+output=$(HOME="$fake_home" PATH="$FAKE_TOOLS_PATH" "$PROCESSED_TEMPLATE" -p "hello" 2>&1 || true)
 assert_contains "$output" "No host Claude login detected." "missing host auth is rejected"
 assert_contains "$output" "Run 'claude' on the host and complete /login" "missing host auth points to host login"
 assert_contains "$output" "Sandbox-only login state under ~/.claudebox is ignored." "missing host auth explains sandbox state is ignored"
@@ -672,6 +737,7 @@ setup_test_dir
 setup_fake_home
 fake_home="$LAST_FAKE_HOME"
 setup_fake_docker
+setup_fake_security
 mkdir -p "$fake_home/.claudebox/claude-config"
 
 cat > "$fake_home/.claudebox/claude-config/.credentials.json" << 'EOF'
@@ -682,7 +748,7 @@ cat > "$fake_home/.claudebox/.claude.json" << 'EOF'
 {"oauthAccount":{"displayName":"Sandbox Session"}}
 EOF
 
-output=$(HOME="$fake_home" PATH="$FAKE_DOCKER_PATH" "$PROCESSED_TEMPLATE" shell 2>&1 || true)
+output=$(HOME="$fake_home" PATH="$FAKE_TOOLS_PATH" "$PROCESSED_TEMPLATE" shell 2>&1 || true)
 assert_contains "$output" "No host Claude login detected." "sandbox-only auth does not satisfy preflight"
 assert_docker_not_invoked "sandbox-only auth still exits before docker"
 
@@ -693,6 +759,25 @@ setup_test_dir
 setup_fake_home
 fake_home="$LAST_FAKE_HOME"
 setup_fake_docker
+setup_fake_security
+mkdir -p "$fake_home/.claude"
+
+cat > "$fake_home/.claude.json" << 'EOF'
+{"oauthAccount":{"displayName":"Host Session"}}
+EOF
+
+output=$(HOME="$fake_home" PATH="$FAKE_TOOLS_PATH" "$PROCESSED_TEMPLATE" -p "hello" 2>&1 || true)
+assert_contains "$output" "No host Claude login detected." "host account metadata alone does not satisfy preflight"
+assert_docker_not_invoked "host account metadata alone exits before docker"
+
+teardown_test_dir
+
+setup_test_dir
+
+setup_fake_home
+fake_home="$LAST_FAKE_HOME"
+setup_fake_docker
+setup_fake_security
 mkdir -p "$fake_home/.claude"
 
 cat > "$fake_home/.claude/.credentials.json" << 'EOF'
@@ -703,7 +788,7 @@ cat > "$fake_home/.claude.json" << 'EOF'
 {"oauthAccount":
 EOF
 
-output=$(HOME="$fake_home" PATH="$FAKE_DOCKER_PATH" "$PROCESSED_TEMPLATE" -p "hello" 2>&1 || true)
+output=$(HOME="$fake_home" PATH="$FAKE_TOOLS_PATH" "$PROCESSED_TEMPLATE" -p "hello" 2>&1 || true)
 assert_contains "$output" "No host Claude login detected." "invalid host auth JSON is rejected"
 assert_docker_not_invoked "invalid host auth exits before docker"
 
@@ -714,15 +799,48 @@ setup_test_dir
 setup_fake_home
 fake_home="$LAST_FAKE_HOME"
 setup_fake_docker
+setup_fake_security
+
+output=$(HOME="$fake_home" PATH="$FAKE_TOOLS_PATH" FAKE_SECURITY_MODE=denied "$PROCESSED_TEMPLATE" -p "hello" 2>&1 || true)
+assert_contains "$output" "Host Claude login could not be read from macOS Keychain." "keychain denial shows a specific error"
+assert_contains "$output" "Approve read access to 'Claude Code-credentials'" "keychain denial points to the exact keychain item"
+assert_docker_not_invoked "keychain denial exits before docker"
+
+teardown_test_dir
+
+setup_test_dir
+
+setup_fake_home
+fake_home="$LAST_FAKE_HOME"
+setup_fake_docker
+setup_fake_security
 mkdir -p "$fake_home/.claude"
 
 cat > "$fake_home/.claude/.credentials.json" << 'EOF'
 {"claudeAiOauth":{"accessToken":"host-access","refreshToken":"host-refresh","expiresAt":123}}
 EOF
 
-output=$(HOME="$fake_home" PATH="$FAKE_DOCKER_PATH" "$PROCESSED_TEMPLATE" -p "hello" 2>&1 || true)
+output=$(HOME="$fake_home" PATH="$FAKE_TOOLS_PATH" "$PROCESSED_TEMPLATE" -p "hello" 2>&1 || true)
 assert_contains "$output" "fake docker invoked" "valid host auth allows launch flow to continue"
 assert_docker_invoked "valid host auth reaches docker"
+
+teardown_test_dir
+
+setup_test_dir
+
+setup_fake_home
+fake_home="$LAST_FAKE_HOME"
+setup_fake_docker
+setup_fake_security
+keychain_credentials_file="$TEST_DIR/keychain-credentials.json"
+
+cat > "$keychain_credentials_file" << 'EOF'
+{"claudeAiOauth":{"accessToken":"keychain-access","refreshToken":"keychain-refresh","expiresAt":123}}
+EOF
+
+output=$(HOME="$fake_home" PATH="$FAKE_TOOLS_PATH" FAKE_SECURITY_MODE=success FAKE_SECURITY_PAYLOAD_FILE="$keychain_credentials_file" "$PROCESSED_TEMPLATE" -p "hello" 2>&1 || true)
+assert_contains "$output" "fake docker invoked" "valid keychain auth allows launch flow to continue"
+assert_docker_invoked "valid keychain auth reaches docker"
 
 teardown_test_dir
 
@@ -734,6 +852,7 @@ setup_test_dir
 
 setup_fake_home
 fake_home="$LAST_FAKE_HOME"
+setup_fake_security
 mkdir -p "$fake_home/.claude" "$fake_home/.claudebox/claude-config"
 
 cat > "$fake_home/.claude.json" << 'EOF'
@@ -757,7 +876,7 @@ cat > "$fake_home/.claudebox/.claude.json" << 'EOF'
 }
 EOF
 
-HOME="$fake_home" "$PROCESSED_TEMPLATE" --dry-run >/dev/null 2>&1
+HOME="$fake_home" PATH="$FAKE_TOOLS_PATH" "$PROCESSED_TEMPLATE" --dry-run >/dev/null 2>&1
 
 synced_name=$(jq -r '.oauthAccount.displayName' "$fake_home/.claudebox/.claude.json")
 synced_subscription=$(jq -r '.recommendedSubscription' "$fake_home/.claudebox/.claude.json")
@@ -779,6 +898,7 @@ setup_test_dir
 
 setup_fake_home
 fake_home="$LAST_FAKE_HOME"
+setup_fake_security
 mkdir -p "$fake_home/.claude" "$fake_home/.claudebox/claude-config"
 
 cat > "$fake_home/.claude.json" << 'EOF'
@@ -793,10 +913,37 @@ cat > "$fake_home/.claudebox/claude-config/.credentials.json" << 'EOF'
 {"claudeAiOauth":{"accessToken":"stale-access","refreshToken":"stale-refresh","expiresAt":1}}
 EOF
 
-HOME="$fake_home" "$PROCESSED_TEMPLATE" --dry-run >/dev/null 2>&1
+HOME="$fake_home" PATH="$FAKE_TOOLS_PATH" "$PROCESSED_TEMPLATE" --dry-run >/dev/null 2>&1
 
 synced_refresh_token=$(jq -r '.claudeAiOauth.refreshToken' "$fake_home/.claudebox/claude-config/.credentials.json")
 assert_equals "$synced_refresh_token" "host-refresh" "host credentials file mirrored into sandbox"
+
+teardown_test_dir
+
+# --- Test: Host keychain credentials sync ---
+echo ""
+echo "--- Host Keychain Credentials Sync ---"
+
+setup_test_dir
+
+setup_fake_home
+fake_home="$LAST_FAKE_HOME"
+setup_fake_security
+keychain_credentials_file="$TEST_DIR/keychain-credentials.json"
+mkdir -p "$fake_home/.claudebox/claude-config"
+
+cat > "$fake_home/.claudebox/claude-config/.credentials.json" << 'EOF'
+{"claudeAiOauth":{"accessToken":"stale-access","refreshToken":"stale-refresh","expiresAt":1}}
+EOF
+
+cat > "$keychain_credentials_file" << 'EOF'
+{"claudeAiOauth":{"accessToken":"keychain-access","refreshToken":"keychain-refresh","expiresAt":123}}
+EOF
+
+HOME="$fake_home" PATH="$FAKE_TOOLS_PATH" FAKE_SECURITY_MODE=success FAKE_SECURITY_PAYLOAD_FILE="$keychain_credentials_file" "$PROCESSED_TEMPLATE" --dry-run >/dev/null 2>&1
+
+synced_refresh_token=$(jq -r '.claudeAiOauth.refreshToken' "$fake_home/.claudebox/claude-config/.credentials.json")
+assert_equals "$synced_refresh_token" "keychain-refresh" "host keychain credentials mirrored into sandbox when file is absent"
 
 teardown_test_dir
 
@@ -808,13 +955,14 @@ setup_test_dir
 
 setup_fake_home
 fake_home="$LAST_FAKE_HOME"
+setup_fake_security
 mkdir -p "$fake_home/.claudebox/claude-config"
 
 cat > "$fake_home/.claudebox/claude-config/.credentials.json" << 'EOF'
 {"claudeAiOauth":{"accessToken":"stale-access","refreshToken":"stale-refresh","expiresAt":1}}
 EOF
 
-HOME="$fake_home" "$PROCESSED_TEMPLATE" --dry-run >/dev/null 2>&1
+HOME="$fake_home" PATH="$FAKE_TOOLS_PATH" "$PROCESSED_TEMPLATE" --dry-run >/dev/null 2>&1
 
 if [ ! -e "$fake_home/.claudebox/claude-config/.credentials.json" ]; then
   pass "stale sandbox credentials removed when host file is absent"

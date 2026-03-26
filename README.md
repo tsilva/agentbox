@@ -86,7 +86,7 @@ cd ~/my-project
 claudebox
 ```
 
-If Claude Code is not already logged in on the host, run `claude` outside the sandbox and complete `/login` first. `claudebox` will not reuse sandbox-only login state from a previous run.
+If Claude Code is not already logged in on the host, run `claude` outside the sandbox and complete `/login` first. `claudebox` will not reuse sandbox-only login state from a previous run. On macOS, host auth may come from the `Claude Code-credentials` keychain item instead of `~/.claude/.credentials.json`.
 
 ## 📋 Requirements
 
@@ -263,7 +263,7 @@ graph LR
 ```
 
 1. **`install.sh`** builds an OCI-compatible image and installs a standalone script to `~/.claudebox/bin/`
-2. Before each launch, claudebox requires an existing host Claude login, then refreshes its isolated auth mirror from host `~/.claude.json` and `~/.claude/.credentials.json`
+2. Before each launch, claudebox requires an existing host Claude login, then refreshes its isolated auth mirror from host `~/.claude.json` plus either host `~/.claude/.credentials.json` or the macOS `Claude Code-credentials` keychain item
 3. Running `claudebox` starts a container with your current directory mounted at its canonical path
 4. Claude Code runs with `--dangerously-skip-permissions` inside the isolated environment
 5. All changes to the mounted directory are reflected in your project
@@ -375,6 +375,8 @@ claude
 ```
 
 Then start a new `claudebox` session. Logging in inside the sandbox is not persisted across future launches.
+
+On macOS, if Claude stores auth in Keychain, `claudebox` reads only the `Claude Code-credentials` item. If macOS prompts for access, approve that specific read.
 
 ### Per-project mounts not working
 
