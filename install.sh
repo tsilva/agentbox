@@ -45,6 +45,8 @@ fi
 # --- Local repo mode ---
 # Resolve the repo root from this script's location
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/repo-common.sh
+source "$REPO_ROOT/scripts/repo-common.sh"
 
 # Parse --update flag (passed by `claudebox update` to bust Docker cache)
 update_mode=false
@@ -65,21 +67,6 @@ detect_shell_rc() {
   fi
 }
 
-# Check if Docker CLI is available and the daemon is running.
-check_runtime() {
-  if ! command -v docker &>/dev/null; then
-    error_block "Docker is not installed or not in PATH" \
-      "Please install Docker Desktop: https://docs.docker.com/get-docker/"
-    exit 1
-  fi
-
-  if ! docker info &>/dev/null; then
-    error_block "Docker daemon is not running" \
-      "Please start Docker Desktop and try again."
-    exit 1
-  fi
-}
-
 # Build the Docker image from the repo's Dockerfile
 do_build() {
   check_runtime
@@ -90,9 +77,7 @@ do_build() {
   # Always use latest Claude Code version as cache key so fresh installs
   # get the newest binary while still reusing cache when version is unchanged.
   local cache_key
-  cache_key=$(curl -fsSL --max-time 5 \
-    "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/latest" 2>/dev/null) || true
-  [ -z "$cache_key" ] && cache_key="$(date +%s)"
+  cache_key=$(build_cache_bust_key 5)
   build_args+=(--build-arg "CACHE_BUST=$cache_key")
 
   # Track old image ID for cleanup during updates
@@ -102,22 +87,8 @@ do_build() {
   fi
   docker build ${build_args[@]+"${build_args[@]}"} -t "$IMAGE_NAME" "$REPO_ROOT"
 
-  # Remove the previous image to avoid dangling image accumulation.
-  # docker rmi safely refuses if containers are still using the old image.
-  if [ -n "$old_id" ]; then
-    local new_id
-    new_id=$(docker images -q "$IMAGE_NAME:latest" 2>/dev/null || true)
-    if [ "$old_id" != "$new_id" ]; then
-      docker rmi "$old_id" 2>/dev/null || true
-    fi
-  fi
-
-  # Extract the baked-in Claude Code version so the host CLI can check for updates
-  installed_version=$(docker run --rm --entrypoint cat "$IMAGE_NAME" /opt/claude-code/VERSION 2>/dev/null) || true
-  if [ -n "$installed_version" ]; then
-    mkdir -p "$HOME/.claudebox"
-    printf '%s' "$installed_version" > "$HOME/.claudebox/version"
-  fi
+  cleanup_replaced_image "$IMAGE_NAME" "$old_id"
+  persist_installed_version "$IMAGE_NAME"
 
   success "Image '$IMAGE_NAME' is ready"
 }
@@ -156,7 +127,7 @@ do_install() {
   success "Installed $HOME/.claudebox/seccomp.json"
 
   # Copy the style library for the standalone CLI
-  cp "${REPO_ROOT}/scripts/style.sh" "$bin_dir/style.sh"
+  cp "${REPO_ROOT}/style.sh" "$bin_dir/style.sh"
   success "Installed $bin_dir/style.sh"
 
   # Store repo path so `claudebox update` can find the source tree

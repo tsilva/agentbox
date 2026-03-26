@@ -15,13 +15,13 @@ claudebox/
 ├── entrypoint.sh           # Container entrypoint (sandbox awareness, venv activation)
 ├── install.sh              # Self-contained installer (dual-mode: curl pipe + local repo)
 ├── uninstall.sh            # Standalone uninstaller
-├── style.sh                # Terminal styling library (sourced by install.sh, uninstall.sh)
+├── style.sh                # Canonical terminal styling library for repo + installed CLI
 ├── scripts/
 │   ├── claudebox-dev.sh        # Dev CLI (build/kill/update)
 │   ├── claudebox-template.sh   # Standalone script template
 │   ├── install-claude-code.sh  # Claude Code installer
-│   ├── seccomp.json            # Syscall filtering profile
-│   └── style.sh                # Terminal styling library (sourced by dev/template scripts)
+│   ├── repo-common.sh          # Shared host-side helpers for repo scripts
+│   └── seccomp.json            # Syscall filtering profile
 ├── tests/
 │   ├── smoke-test.sh           # Basic functionality tests
 │   ├── isolation-test.sh       # Filesystem isolation tests
@@ -140,6 +140,8 @@ The project consists of shell scripts that wrap Docker:
 - **Dockerfile** - Debian slim image with Claude Code binary installed to `/opt/claude-code/`, entry point runs `claude --dangerously-skip-permissions`
 - **scripts/claudebox-dev.sh** - Dev CLI with build, kill, and update commands (delegates install/uninstall)
 - **scripts/claudebox-template.sh** - Template for the installed standalone script
+- **style.sh** - Single source of truth for terminal styling used by repo scripts and copied into the installed CLI
+- **scripts/repo-common.sh** - Shared host-side helper functions used by repo-only install/dev flows
 
 ### Key Implementation Details
 

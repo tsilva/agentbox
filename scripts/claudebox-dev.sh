@@ -17,31 +17,15 @@ set -euo pipefail
 
 # Source terminal styling library (graceful fallback to plain echo)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/style.sh
-[[ -f "$SCRIPT_DIR/style.sh" ]] && source "$SCRIPT_DIR/style.sh" || true
+# shellcheck source=../style.sh
+[[ -f "$SCRIPT_DIR/../style.sh" ]] && source "$SCRIPT_DIR/../style.sh" || true
 
 # Resolve the repo root from this script's location (scripts/ → repo root)
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=repo-common.sh
+source "$SCRIPT_DIR/repo-common.sh"
 # Docker image name used for building and running containers
 IMAGE_NAME="claudebox"
-
-# Check if Docker CLI is available and the daemon is running.
-# Called before any command that requires Docker.
-check_runtime() {
-  # Verify the docker binary is installed and on PATH
-  if ! command -v docker &>/dev/null; then
-    error_block "Docker is not installed or not in PATH" \
-      "Please install Docker Desktop: https://docs.docker.com/get-docker/"
-    exit 1
-  fi
-
-  # Verify the Docker daemon is responsive (not just installed)
-  if ! docker info &>/dev/null; then
-    error_block "Docker daemon is not running" \
-      "Please start Docker Desktop and try again."
-    exit 1
-  fi
-}
 
 # Build the Docker image from the repo's Dockerfile
 # Pass --bust-cache to invalidate the Claude Code download layer
@@ -55,9 +39,7 @@ do_build() {
     # Use Claude Code version as cache key so Docker caches the download layer
     # when the version hasn't changed. Fall back to timestamp if fetch fails.
     local cache_key
-    cache_key=$(curl -fsSL --max-time 5 \
-      "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/latest" 2>/dev/null) || true
-    [ -z "$cache_key" ] && cache_key="$(date +%s)"
+    cache_key=$(build_cache_bust_key 5)
     build_args+=(--build-arg "CACHE_BUST=$cache_key")
     old_id=$(docker images -q "$IMAGE_NAME:latest" 2>/dev/null || true)
   fi
@@ -66,22 +48,8 @@ do_build() {
   # Build from the repo root which contains the Dockerfile
   docker build ${build_args[@]+"${build_args[@]}"} -t "$IMAGE_NAME" "$REPO_ROOT"
 
-  # Remove the previous image to avoid dangling image accumulation.
-  # docker rmi safely refuses if containers are still using the old image.
-  if [ -n "$old_id" ]; then
-    local new_id
-    new_id=$(docker images -q "$IMAGE_NAME:latest" 2>/dev/null || true)
-    if [ "$old_id" != "$new_id" ]; then
-      docker rmi "$old_id" 2>/dev/null || true
-    fi
-  fi
-
-  # Extract the baked-in Claude Code version so the host CLI can check for updates
-  installed_version=$(docker run --rm --entrypoint cat "$IMAGE_NAME" /opt/claude-code/VERSION 2>/dev/null) || true
-  if [ -n "$installed_version" ]; then
-    mkdir -p "$HOME/.claudebox"
-    printf '%s' "$installed_version" > "$HOME/.claudebox/version"
-  fi
+  cleanup_replaced_image "$IMAGE_NAME" "$old_id"
+  persist_installed_version "$IMAGE_NAME"
 
   success "Image '$IMAGE_NAME' is ready"
   info "Run 'claudebox' from any directory to start"
@@ -135,7 +103,7 @@ case "$cmd" in
     # Pull latest git changes, then rebuild the image
     step "Pulling latest changes"
     git -C "$REPO_ROOT" pull
-    rm -f "$HOME/.claudebox/.latest-version"
+    clear_latest_version_cache
     do_build --bust-cache
     ;;
   *)

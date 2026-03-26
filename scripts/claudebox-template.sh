@@ -12,7 +12,7 @@ set -euo pipefail
 
 # Source terminal styling library (graceful fallback to plain echo)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/style.sh
+# shellcheck source=style.sh
 [[ -f "$SCRIPT_DIR/style.sh" ]] && source "$SCRIPT_DIR/style.sh" || true
 
 # Fallback to plain-text output if the styling helper is unavailable.
@@ -276,7 +276,7 @@ check_version_staleness() {
   # Compare versions
   [ -n "${latest_version:-}" ] || return 0
   if [ "$installed_version" != "$latest_version" ]; then
-    warn "Update available ($installed_version → $latest_version) — run: claudebox update"
+    warn "update available ($installed_version → $latest_version) — run: claudebox update"
   fi
 }
 [ "$print_mode" = false ] && check_version_staleness

@@ -278,10 +278,12 @@ claudebox/
 ├── entrypoint.sh           # Container entrypoint (sandbox awareness, venv activation)
 ├── install.sh              # Self-contained installer (dual-mode: curl pipe + local repo)
 ├── uninstall.sh            # Standalone uninstaller
+├── style.sh                # Canonical terminal styling library for repo + installed CLI
 ├── scripts/
 │   ├── claudebox-dev.sh        # Dev CLI (build/kill/update)
 │   ├── claudebox-template.sh   # Standalone script template
 │   ├── install-claude-code.sh  # Claude Code installer
+│   ├── repo-common.sh          # Shared host-side helpers for repo scripts
 │   └── seccomp.json            # Syscall filtering profile
 ├── tests/
 │   ├── smoke-test.sh           # Basic functionality tests
