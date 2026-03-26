@@ -47,7 +47,7 @@
 - **📁 Same-path mounting** — Your project directory is mounted at its canonical path, so file paths work identically inside and outside the container
 - **⚙️ Per-project configuration** — Define additional mounts and ports via `.claudebox.json` for data directories, output folders, and more
 - **🐳 Per-project Dockerfile** — Customize the container with project-specific dependencies using `.claudebox.Dockerfile`
-- **🔌 Plugin support** — Marketplace plugins from `~/.claude/plugins/marketplaces` are mounted read-only into the container
+- **🔌 Plugin support** — Host plugin marketplaces, cache, and metadata are synced into an isolated sandbox mirror before the container starts
 - **🚀 Simple setup** — One install script adds a standalone command you can run from any project
 
 ## 🤔 Why claudebox?
@@ -88,8 +88,8 @@ claudebox
 
 ## 📋 Requirements
 
-- [Docker Desktop](https://docs.docker.com/get-docker/) on macOS (Linux/WSL2 not yet supported)
-- **Optional:** `jq` for per-project configuration support (`brew install jq`)
+- Docker installed and running. On macOS, [Docker Desktop](https://docs.docker.com/get-docker/) is the standard setup; the repo is also exercised on Ubuntu in CI.
+- **Optional:** `jq` for per-project configuration support (`brew install jq` or your platform package manager)
 
 ## 💻 Usage
 
@@ -121,6 +121,9 @@ claudebox --readonly
 
 # Print the full docker run command without executing
 claudebox --dry-run
+
+# Update the installed script and base image
+claudebox update
 ```
 
 The `shell` argument is useful for debugging or exploring what tools and files are available inside the container.
@@ -204,7 +207,7 @@ claudebox                 # Interactive prompt to select profile
 }
 ```
 
-**Note:** Requires `jq` to be installed. If `jq` is missing or the config file is invalid, extra mounts and ports are skipped with a warning and the sandbox runs normally.
+**Note:** Requires `jq` to be installed. If `jq` is missing, claudebox skips `.claudebox.json` with a warning. If the config file is invalid, claudebox exits with an error so you can fix it before launch.
 
 **Example use case:** Git worktrees for parallel feature development:
 
@@ -245,6 +248,7 @@ When present, a per-project image is automatically built before each run. This l
 | `./scripts/claudebox-dev.sh build` | Rebuild the container image |
 | `./scripts/claudebox-dev.sh update` | Pull latest changes and rebuild |
 | `./scripts/claudebox-dev.sh kill` | Force stop any running containers |
+| `claudebox update` | Update an installed `claudebox` checkout and rebuild the image |
 
 ## 🔧 How It Works
 
@@ -262,7 +266,7 @@ graph LR
 4. Claude Code runs with `--dangerously-skip-permissions` inside the isolated environment
 5. All changes to the mounted directory are reflected in your project
 6. Optional: `.claudebox.json` adds extra mounts for data directories
-7. Marketplace plugins from `~/.claude/plugins/` are synced into the sandbox mirror before the container starts
+7. Host plugins from `~/.claude/plugins/` are synced into the sandbox mirror, including marketplace manifests, plugin cache, and rewritten metadata paths
 
 ## 🧠 Sandbox Awareness
 
@@ -289,6 +293,7 @@ claudebox/
 │   ├── claudebox-dev.sh        # Dev CLI (build/kill/update)
 │   ├── claudebox-template.sh   # Standalone script template
 │   ├── install-claude-code.sh  # Claude Code installer
+│   ├── lint.sh                 # Canonical shellcheck entrypoint
 │   ├── repo-common.sh          # Shared host-side helpers for repo scripts
 │   └── seccomp.json            # Syscall filtering profile
 ├── tests/
@@ -296,10 +301,11 @@ claudebox/
 │   ├── isolation-test.sh       # Filesystem isolation tests
 │   ├── security-regression.sh  # Security constraint tests
 │   ├── validation-test.sh      # Config validation tests
+│   ├── version-check-test.sh   # Update warning tests
 │   ├── golden/                 # Expected output fixtures
 │   └── lib/                    # Test utilities
 ├── .github/workflows/
-│   └── ci.yml              # Shellcheck + build CI
+│   └── ci.yml              # Shellcheck, syntax, build, and security CI
 ├── SECURITY.md
 ├── CLAUDE.md
 └── README.md
@@ -325,7 +331,7 @@ By default, containers run without resource limits. To restrict CPU, memory, or 
 
 ### Docker not running
 
-If you see "daemon is not running", start Docker Desktop:
+If you see "daemon is not running", start Docker Desktop or your local Docker daemon:
 
 ```bash
 docker info  # Should show Docker daemon info
@@ -343,10 +349,10 @@ curl -I https://api.anthropic.com
 
 ### Permission denied / UID mismatch
 
-The container user UID is set at build time to match your host user. If you see permission errors on mounted files, rebuild:
+The container runs as a non-root `claude` user (UID 1000). If you see permission errors on mounted files, verify that the host directory is writable to your user and that you did not enable `--readonly` or a read-only profile mount.
 
 ```bash
-./scripts/claudebox-dev.sh build  # Rebuilds with your current UID
+ls -ld .
 ```
 
 ### "Configuration file corrupted" on first run
@@ -378,7 +384,7 @@ lsof -i :3000  # Find what's using the port
 
 ### Docker not enough resources
 
-If builds or runs fail with out-of-memory errors, increase Docker Desktop's resource allocation in **Settings > Resources**.
+If builds or runs fail with out-of-memory errors, increase Docker's resource allocation. On macOS with Docker Desktop, use **Settings > Resources**.
 
 ## 🔔 Notifications
 
