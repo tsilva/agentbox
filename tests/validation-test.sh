@@ -28,11 +28,15 @@ sed 's|PLACEHOLDER_IMAGE_NAME|claudebox|g' \
     "$TEMPLATE" > "$PROCESSED_TEMPLATE"
 chmod +x "$PROCESSED_TEMPLATE"
 
+# Ensure the seccomp profile exists for dry-run validation.
+mkdir -p ~/.claudebox
+cp "$REPO_ROOT/scripts/seccomp.json" ~/.claudebox/seccomp.json
+
 FAKE_HOMES=()
 LAST_FAKE_HOME=""
 
 setup_fake_home() {
-  LAST_FAKE_HOME=$(mktemp -d)
+  LAST_FAKE_HOME=$(mktemp -d /tmp/claudebox-fake-home.XXXXXX 2>/dev/null || mktemp -d)
   FAKE_HOMES+=("$LAST_FAKE_HOME")
   mkdir -p "$LAST_FAKE_HOME/.claudebox"
   cp "$REPO_ROOT/scripts/seccomp.json" "$LAST_FAKE_HOME/.claudebox/seccomp.json"
@@ -309,6 +313,30 @@ EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
 assert_contains "$output" "blocked (security policy)" "\$HOME/.docker blocked"
 
+# Test: $HOME should be blocked because it would expose blocked children
+setup_fake_home
+fake_home="$LAST_FAKE_HOME"
+mkdir -p "$fake_home/.config" "$fake_home/projects/data"
+cat > .claudebox.json << EOF
+{"dev":{"mounts":[{"path":"$fake_home"}]}}
+EOF
+output=$(HOME="$fake_home" "$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
+assert_contains "$output" "blocked (security policy)" "\$HOME ancestor blocked"
+
+# Test: $HOME/.config should be blocked because it would expose .config/gcloud
+cat > .claudebox.json << EOF
+{"dev":{"mounts":[{"path":"$fake_home/.config"}]}}
+EOF
+output=$(HOME="$fake_home" "$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
+assert_contains "$output" "blocked (security policy)" "\$HOME/.config ancestor blocked"
+
+# Test: Safe child under $HOME should still be allowed
+cat > .claudebox.json << EOF
+{"dev":{"mounts":[{"path":"$fake_home/projects/data"}]}}
+EOF
+output=$(HOME="$fake_home" "$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
+assert_not_contains "$output" "blocked" "safe child under \$HOME allowed"
+
 # Test: Blocked path exits with non-zero
 cat > .claudebox.json << EOF
 {"dev":{"mounts":[{"path":"$HOME/.ssh"}]}}
@@ -317,6 +345,16 @@ if "$PROCESSED_TEMPLATE" --dry-run --profile dev &>/dev/null; then
   fail "blocked path should exit non-zero"
 else
   pass "blocked path exits non-zero"
+fi
+
+# Test: Ancestor mount also exits with non-zero
+cat > .claudebox.json << EOF
+{"dev":{"mounts":[{"path":"$fake_home"}]}}
+EOF
+if HOME="$fake_home" "$PROCESSED_TEMPLATE" --dry-run --profile dev &>/dev/null; then
+  fail "ancestor blocked path should exit non-zero"
+else
+  pass "ancestor blocked path exits non-zero"
 fi
 
 # Test: /tmp is NOT blocked (common writable mount)

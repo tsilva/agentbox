@@ -27,9 +27,25 @@ sed 's|PLACEHOLDER_IMAGE_NAME|claudebox|g' \
     "$TEMPLATE" > "$PROCESSED_TEMPLATE"
 chmod +x "$PROCESSED_TEMPLATE"
 
+FAKE_HOMES=()
+LAST_FAKE_HOME=""
+REAL_DOCKER_HOST="${DOCKER_HOST:-}"
+
+setup_fake_home() {
+  LAST_FAKE_HOME=$(mktemp -d)
+  FAKE_HOMES+=("$LAST_FAKE_HOME")
+  mkdir -p "$LAST_FAKE_HOME/.claudebox"
+  cp "$REPO_ROOT/scripts/seccomp.json" "$LAST_FAKE_HOME/.claudebox/seccomp.json"
+}
+
 # Cleanup on exit
 cleanup() {
-  rm -f "$PROCESSED_TEMPLATE"
+  rm -f "$PROCESSED_TEMPLATE" 2>/dev/null || true
+  if [ "${#FAKE_HOMES[@]}" -gt 0 ]; then
+    for fake_home in "${FAKE_HOMES[@]}"; do
+      rm -rf "$fake_home" 2>/dev/null || true
+    done
+  fi
   teardown_test_dir 2>/dev/null || true
 }
 trap cleanup EXIT
@@ -185,6 +201,35 @@ assert_equals "$uid" "1000" "container runs as UID 1000"
 username=$(docker run --rm --entrypoint /bin/bash claudebox -c "whoami")
 assert_not_contains "$username" "root" "container user is not root"
 
+# --- Test: Repo-controlled virtualenv activation is not auto-sourced ---
+echo ""
+echo "--- Startup Script Safety ---"
+
+setup_test_dir
+
+mkdir -p .venv/bin
+cat > .venv/bin/activate <<'EOF'
+#!/bin/bash
+echo "MALICIOUS_VENV_ACTIVATE_RAN" >&2
+touch "$PWD/.venv-activate-executed"
+EOF
+chmod +x .venv/bin/activate
+
+output=$(docker run --rm \
+  -v "$PWD":"$PWD" \
+  -w "$PWD" \
+  claudebox --version 2>&1 || true)
+
+assert_not_contains "$output" "MALICIOUS_VENV_ACTIVATE_RAN" "repo activate script output is absent"
+
+if [ -e .venv-activate-executed ]; then
+  fail "repo activate script was executed"
+else
+  pass "repo activate script is not auto-sourced"
+fi
+
+teardown_test_dir
+
 # --- Test: Read-only mode adds protection ---
 echo ""
 echo "--- Read-Only Mode ---"
@@ -197,6 +242,29 @@ output=$("$PROCESSED_TEMPLATE" --dry-run --readonly 2>&1)
 
 # The working directory should have :ro suffix in readonly mode
 assert_matches "$output" "$(pwd):[^:]*:ro" "workdir is read-only in readonly mode"
+
+require_docker
+require_image
+if [ -z "$REAL_DOCKER_HOST" ]; then
+  REAL_DOCKER_HOST=$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null || true)
+fi
+setup_fake_home
+
+cat > .claudebox.Dockerfile << 'EOF'
+FROM claudebox
+USER root
+RUN cat <<'SCRIPT' > /opt/claude-code/claude
+#!/bin/bash
+set -euo pipefail
+grep -q "Sandbox Environment (claudebox)" /home/claude/.claude/CLAUDE.md
+printf '%s\n' "stub claude ran"
+SCRIPT
+RUN chmod 755 /opt/claude-code/claude && chown claude:claude /opt/claude-code/claude
+USER claude
+EOF
+
+output=$(HOME="$LAST_FAKE_HOME" DOCKER_HOST="$REAL_DOCKER_HOST" "$PROCESSED_TEMPLATE" --readonly -p "self-check" 2>&1)
+assert_contains "$output" "stub claude ran" "readonly startup reaches Claude"
 
 teardown_test_dir
 

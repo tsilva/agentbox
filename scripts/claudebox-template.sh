@@ -89,12 +89,17 @@ CLAUDEBOX_STATE_DIR="$HOME/.claudebox"
 SANDBOX_CLAUDE_DIR="$CLAUDEBOX_STATE_DIR/claude-config"
 SANDBOX_DOTCONFIG_DIR="$CLAUDEBOX_STATE_DIR/claude-dotconfig"
 SANDBOX_PLUGINS_DIR="$CLAUDEBOX_STATE_DIR/plugins"
+SANDBOX_RUNTIME_DIR="$CLAUDEBOX_STATE_DIR/runtime"
 SANDBOX_CLAUDE_STATE_FILE="$CLAUDEBOX_STATE_DIR/.claude.json"
 SANDBOX_CREDENTIALS_FILE="$SANDBOX_CLAUDE_DIR/.credentials.json"
+SANDBOX_RUNTIME_CLAUDE_MD_FILE="$SANDBOX_RUNTIME_DIR/CLAUDE.md"
 
 mkdir -p "$SANDBOX_CLAUDE_DIR"
 mkdir -p "$SANDBOX_DOTCONFIG_DIR"
 mkdir -p "$SANDBOX_PLUGINS_DIR"
+mkdir -p "$SANDBOX_RUNTIME_DIR"
+mkdir -p "$SANDBOX_CLAUDE_DIR/plugins"
+mkdir -p "$SANDBOX_CLAUDE_DIR/plans"
 
 sync_directory() {
   local src="$1"
@@ -130,7 +135,15 @@ sync_host_auth_state() {
   fi
 }
 
+ensure_runtime_claude_md_files() {
+  rm -rf "$SANDBOX_CLAUDE_DIR/CLAUDE.md"
+  rm -rf "$SANDBOX_RUNTIME_CLAUDE_MD_FILE"
+  : > "$SANDBOX_CLAUDE_DIR/CLAUDE.md"
+  : > "$SANDBOX_RUNTIME_CLAUDE_MD_FILE"
+}
+
 sync_host_auth_state
+ensure_runtime_claude_md_files
 
 # Sync sandbox plugins from host (always sync to keep in sync with host state)
 sync_directory "$HOST_CLAUDE_DIR/plugins/marketplaces" "$SANDBOX_PLUGINS_DIR/marketplaces"
@@ -299,17 +312,30 @@ BLOCKED_PATHS=(
 
 normalize_path() {
   local p="$1"
-  local normalized
-  normalized=$(realpath -m "${p/#\~/$HOME}" 2>/dev/null) || normalized="${p/#\~/$HOME}"
-  [[ "$normalized" != "/" ]] && normalized="${normalized%/}"
+  local normalized="${p/#\~/$HOME}"
+  while [[ "$normalized" != "/" && "$normalized" == */ ]]; do
+    normalized="${normalized%/}"
+  done
   echo "$normalized"
+}
+
+is_same_or_descendant_path() {
+  local candidate="$1"
+  local parent="$2"
+
+  [[ "$candidate" == "$parent" ]] && return 0
+  # Treat "/" as exact-match only so normal absolute paths remain mountable.
+  [ "$parent" = "/" ] && return 1
+  [[ "$candidate" == "$parent"/* ]]
 }
 
 is_path_blocked() {
   local normalized="$1"
   for blocked in "${BLOCKED_PATHS[@]}"; do
-    [[ "$normalized" == "$blocked" ]] && return 0
-    [[ "$normalized" == "$blocked"/* ]] && return 0
+    if is_same_or_descendant_path "$normalized" "$blocked" || \
+      is_same_or_descendant_path "$blocked" "$normalized"; then
+      return 0
+    fi
   done
   return 1
 }
@@ -610,6 +636,8 @@ docker_cmd=(
   # Mount the sandbox mirror of Claude's ~/.claude directory. Auth is refreshed
   # from the host before launch, but subsequent writes stay isolated to claudebox.
   -v "$SANDBOX_CLAUDE_DIR:/home/claude/.claude${ro_suffix}"
+  # Keep sandbox-awareness CLAUDE.md writable even when ~/.claude is read-only.
+  -v "$SANDBOX_RUNTIME_CLAUDE_MD_FILE:/home/claude/.claude/CLAUDE.md"
   # Mount the sandbox mirror of Claude's JSON state file. NOTE: Always writable
   # so sandbox-local state can persist even when host paths are read-only.
   -v "$SANDBOX_CLAUDE_STATE_FILE:/home/claude/.claude.json"

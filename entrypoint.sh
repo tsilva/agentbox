@@ -7,14 +7,16 @@ set -euo pipefail
 mkdir -p /home/claude/.local/bin
 ln -sf /opt/claude-code/claude /home/claude/.local/bin/claude
 
-# Activate any project-level Python venv so Claude can use project dependencies
-if [ -f .venv/bin/activate ]; then
-  echo "Activating Python virtual environment (.venv) at $PWD/.venv" >&2
-  source .venv/bin/activate
-fi
+# Intentionally do not auto-source project-managed activation scripts.
+# A repo-controlled .venv/bin/activate would execute arbitrary shell code
+# before Claude starts. Users can still activate a venv manually if needed.
+
+claude_md_path="/home/claude/.claude/CLAUDE.md"
+# The wrapper bind-mounts this path to a dedicated runtime file so it stays
+# writable even when ~/.claude is mounted read-only.
 
 # Generate sandbox awareness CLAUDE.md
-cat > /home/claude/.claude/CLAUDE.md << 'SANDBOX_EOF'
+cat > "$claude_md_path" << 'SANDBOX_EOF'
 # Sandbox Environment (claudebox)
 
 You are running inside an isolated Docker sandbox. Be aware of these constraints:
@@ -56,7 +58,7 @@ SANDBOX_EOF
     echo "## ⚠️ Network Access Enabled"
     echo "This container has outbound network access. Claude can make HTTP requests to external services, which could be used to exfiltrate data from mounted directories."
   fi
-} >> /home/claude/.claude/CLAUDE.md
+} >> "$claude_md_path"
 
 # Replace this process with Claude Code running in fully autonomous mode.
 # All remaining arguments (e.g. "shell") are forwarded to the binary.

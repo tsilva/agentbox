@@ -125,6 +125,8 @@ claudebox --dry-run
 
 The `shell` argument is useful for debugging or exploring what tools and files are available inside the container.
 
+Project virtualenv activation is manual. `claudebox` does not source `.venv/bin/activate` at startup, so repo-controlled shell code cannot run before Claude begins.
+
 **Print mode** (`-p` / `--print`) runs non-interactively, executes the prompt, and exits. This is useful for scripting and automation.
 
 ## ⚙️ Per-Project Configuration
@@ -165,6 +167,8 @@ Create a `.claudebox.json` file in your project root to define named profiles wi
 | `pids_limit` | No | Max processes (e.g., `256`) — maps to `docker --pids-limit` |
 | `ulimit_nofile` | No | Open file descriptors limit (e.g., `"1024:2048"`) |
 | `ulimit_fsize` | No | Max file size in bytes (e.g., `1073741824`) |
+
+Mounts are rejected when they target a blocked path, a child of a blocked path, or a parent path that would expose blocked children such as `$HOME` or `~/.config`.
 
 **Git safety:** When running from a git repository, the `.git` directory is mounted read-only, preventing commits and other write operations. No SSH keys or git credentials are available in the container, so pushes will also fail. When running outside a git repo, a warning is displayed.
 
@@ -263,7 +267,7 @@ graph LR
 At container startup, claudebox generates a `CLAUDE.md` file at `~/.claude/CLAUDE.md` inside the container. Claude Code automatically loads this file, making the AI aware of its environment constraints:
 
 - **Filesystem restrictions** — Read-only root filesystem, writable locations (`/tmp`, `~/.cache`, etc.)
-- **Blocked paths** — No access to `~/.ssh`, `~/.aws`, `~/.gnupg`, and other sensitive directories
+- **Blocked paths** — No access to `~/.ssh`, `~/.aws`, `~/.gnupg`, and parent mounts like `$HOME` or `~/.config` that would expose them
 - **Git restrictions** — `.git` directory is read-only; commits and pushes are blocked
 - **Profile settings** — Network mode, CPU/memory limits, extra mounts with access modes
 
@@ -275,7 +279,7 @@ This prevents Claude from attempting operations that would fail (like `git push`
 claudebox/
 ├── Dockerfile              # OCI-compatible image definition
 ├── .dockerignore           # Files excluded from build context
-├── entrypoint.sh           # Container entrypoint (sandbox awareness, venv activation)
+├── entrypoint.sh           # Container entrypoint (sandbox awareness, Claude launch)
 ├── install.sh              # Self-contained installer (dual-mode: curl pipe + local repo)
 ├── uninstall.sh            # Standalone uninstaller
 ├── style.sh                # Canonical terminal styling library for repo + installed CLI
@@ -403,9 +407,5 @@ Found a bug or have an idea? [Open an issue](https://github.com/tsilva/claudebox
 </div>
 
 ## 📄 License
-
-MIT
-
-## License
 
 MIT
