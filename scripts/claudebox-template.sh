@@ -216,8 +216,7 @@ require_host_auth() {
   fi
 
   error_block "No host Claude login detected." \
-    "Run 'claude' on the host and complete /login before starting claudebox." \
-    "Sandbox-only login state under ~/.claudebox is ignored."
+    "Run 'claude' on the host and complete /login before starting claudebox."
   exit 1
 }
 

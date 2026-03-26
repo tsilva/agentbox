@@ -727,7 +727,6 @@ mkdir -p "$fake_home/.claudebox/claude-config"
 output=$(HOME="$fake_home" PATH="$FAKE_TOOLS_PATH" "$PROCESSED_TEMPLATE" -p "hello" 2>&1 || true)
 assert_contains "$output" "No host Claude login detected." "missing host auth is rejected"
 assert_contains "$output" "Run 'claude' on the host and complete /login" "missing host auth points to host login"
-assert_contains "$output" "Sandbox-only login state under ~/.claudebox is ignored." "missing host auth explains sandbox state is ignored"
 assert_docker_not_invoked "missing host auth exits before docker"
 
 teardown_test_dir
