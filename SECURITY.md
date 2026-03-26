@@ -18,7 +18,7 @@ claudebox runs Claude Code inside a Docker container with:
 ### What is NOT isolated
 
 - **Network access**: The container has unrestricted network access by default. Claude Code can make arbitrary HTTP requests, install packages, and communicate with external services.
-- **Mounted directories**: Any mounted path (working directory, extra mounts) is fully writable unless mounted read-only.
+- **Mounted directories**: Any mounted path (working directory, extra mounts) is fully writable unless mounted read-only. With `--readonly`, claudebox-managed host mirrors are also mounted read-only.
 - **Claude credentials**: Your Claude authentication tokens are mounted into the container.
 
 ## `--dangerously-skip-permissions`
@@ -41,7 +41,7 @@ When running from a directory that is not a git repository, a warning is display
 
 ## Per-Project Dockerfile
 
-If a `.claudebox.Dockerfile` exists in the project root, it is automatically built and used as the container image. This file runs with full Docker build capabilities and constitutes an **explicit trust boundary** — it can install packages, run arbitrary commands at build time, and modify the container environment. Only use projects with `.claudebox.Dockerfile` from sources you trust.
+If a `.claudebox.Dockerfile` exists in the project root, it is automatically built and used as the container image for normal runs. This file runs with full Docker build capabilities and constitutes an **explicit trust boundary** — it can install packages, run arbitrary commands at build time, and modify the container environment. Only use projects with `.claudebox.Dockerfile` from sources you trust. `--dry-run` skips this build step.
 
 ## Recommendations
 

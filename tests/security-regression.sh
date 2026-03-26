@@ -242,6 +242,10 @@ output=$("$PROCESSED_TEMPLATE" --dry-run --readonly 2>&1)
 
 # The working directory should have :ro suffix in readonly mode
 assert_matches "$output" "$(pwd):[^:]*:ro" "workdir is read-only in readonly mode"
+assert_contains "$output" "$HOME/.claudebox/claude-config:/home/claude/.claude:ro" "sandbox Claude config is read-only in readonly mode"
+assert_contains "$output" "$HOME/.claudebox/claude-dotconfig:/home/claude/.config:ro" "sandbox dotconfig is read-only in readonly mode"
+assert_contains "$output" "$HOME/.claudebox/.claude.json:/home/claude/.claude.json:ro" "sandbox state is read-only in readonly mode"
+assert_contains "$output" "$HOME/.claudebox/plugins:/home/claude/.claude/plugins:ro" "sandbox plugins are read-only in readonly mode"
 
 require_docker
 require_image
@@ -250,6 +254,12 @@ if [ -z "$REAL_DOCKER_HOST" ]; then
 fi
 setup_fake_home
 
+mkdir -p "$LAST_FAKE_HOME/.claude/plugins/cache/example-market/example-plugin"
+cat > "$LAST_FAKE_HOME/.claude.json" << 'EOF'
+{"persisted":false}
+EOF
+printf '%s\n' 'host-plugin' > "$LAST_FAKE_HOME/.claude/plugins/cache/example-market/example-plugin/plugin.js"
+
 cat > .claudebox.Dockerfile << 'EOF'
 FROM claudebox
 USER root
@@ -257,6 +267,16 @@ RUN cat <<'SCRIPT' > /opt/claude-code/claude
 #!/bin/bash
 set -euo pipefail
 grep -q "Sandbox Environment (claudebox)" /home/claude/.claude/CLAUDE.md
+if (printf '%s\n' '{"persisted":true}' > /home/claude/.claude.json) 2>/tmp/state.err; then
+  echo "sandbox state unexpectedly writable" >&2
+  exit 1
+fi
+if (printf '%s\n' 'mutated-plugin' > /home/claude/.claude/plugins/cache/example-market/example-plugin/plugin.js) 2>/tmp/plugin.err; then
+  echo "sandbox plugins unexpectedly writable" >&2
+  exit 1
+fi
+grep -Eq 'Read-only file system|Permission denied' /tmp/state.err
+grep -Eq 'Read-only file system|Permission denied' /tmp/plugin.err
 printf '%s\n' "stub claude ran"
 SCRIPT
 RUN chmod 755 /opt/claude-code/claude && chown claude:claude /opt/claude-code/claude
@@ -271,6 +291,34 @@ else
 fi
 assert_equals "$readonly_exit" "0" "readonly startup exits successfully"
 assert_contains "$output" "stub claude ran" "readonly startup reaches Claude"
+assert_equals "$(tr -d '\n' < "$LAST_FAKE_HOME/.claudebox/.claude.json")" '{"persisted":false}' "readonly keeps sandbox state unchanged"
+assert_equals "$(tr -d '\n' < "$LAST_FAKE_HOME/.claudebox/plugins/cache/example-market/example-plugin/plugin.js")" 'host-plugin' "readonly keeps sandbox plugins unchanged"
+
+teardown_test_dir
+
+# --- Test: Dry-run skips per-project image builds ---
+echo ""
+echo "--- Dry-Run Safety ---"
+
+setup_test_dir
+git init -q
+
+cat > .claudebox.Dockerfile << 'EOF'
+FROM claudebox
+RUN echo "SHOULD_NOT_BUILD" >&2
+RUN exit 99
+EOF
+
+dry_run_exit=0
+if output=$("$PROCESSED_TEMPLATE" --dry-run 2>&1); then
+  dry_run_exit=0
+else
+  dry_run_exit=$?
+fi
+assert_equals "$dry_run_exit" "0" "dry-run with project Dockerfile exits successfully"
+assert_contains "$output" "Per-project image build skipped for --dry-run" "dry-run reports skipped project build"
+assert_not_contains "$output" "Building per-project image" "dry-run does not build project image"
+assert_contains "$output" "claudebox-project" "dry-run still references project image"
 
 teardown_test_dir
 

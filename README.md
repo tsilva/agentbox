@@ -116,10 +116,10 @@ claudebox -P prod             # Short form (-P uppercase)
 # Combine profile with print mode
 claudebox -P dev -p "run tests"
 
-# Mount all host paths as read-only (workspace, config, extra mounts)
+# Mount all host-backed paths as read-only, including claudebox-managed state
 claudebox --readonly
 
-# Print the full docker run command without executing
+# Print the full docker run command without executing container or project-image builds
 claudebox --dry-run
 
 # Update the installed script and base image
@@ -237,7 +237,7 @@ RUN apt-get update && apt-get install -y python3 python3-pip
 RUN pip3 install pandas
 ```
 
-When present, a per-project image is automatically built before each run. This lets you pre-install tools, libraries, or system packages that your project needs without modifying the shared base image.
+When present, a per-project image is automatically built before each normal run. This lets you pre-install tools, libraries, or system packages that your project needs without modifying the shared base image. `--dry-run` skips the build and prints a note instead.
 
 ## 🛠️ Commands
 

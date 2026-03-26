@@ -652,16 +652,16 @@ resource_args+=(--pids-limit "${profile_pids_limit:-$DEFAULT_PIDS_LIMIT}")
 [ -n "${profile_ulimit_fsize:-}" ] && resource_args+=(--ulimit "fsize=$profile_ulimit_fsize:$profile_ulimit_fsize")
 
 # --- Per-project Dockerfile ---
-# If a project provides .claudebox.Dockerfile, build a custom image
-# layered on top of the base image for project-specific dependencies
+# If a project provides .claudebox.Dockerfile, use a custom image layered on top
+# of the base image for project-specific dependencies. Actual builds happen only
+# for real runs; --dry-run prints the command without executing repo-controlled
+# Docker build steps.
 run_image="$IMAGE_NAME"
+project_image_note=""
 if [ -f ".claudebox.Dockerfile" ]; then
   run_image="${IMAGE_NAME}-project"
-  step "Building per-project image"
-  # Build quietly (-q) since this runs on every invocation
-  if ! docker build -q -f .claudebox.Dockerfile -t "$run_image" . >&2; then
-    error "Failed to build per-project image from .claudebox.Dockerfile"
-    exit 1
+  if [ "$dry_run" = true ]; then
+    project_image_note="Per-project image build skipped for --dry-run; normal runs build and use $run_image."
   fi
 fi
 
@@ -755,11 +755,10 @@ docker_cmd=(
   -v "$SANDBOX_CLAUDE_DIR:/home/claude/.claude${ro_suffix}"
   # Keep sandbox-awareness CLAUDE.md writable via a tmpfs-backed runtime path.
   --tmpfs "/home/claude/.claude/runtime:rw,nosuid,size=16m,uid=1000,gid=1000"
-  # Mount the sandbox mirror of Claude's JSON state file. NOTE: Always writable
-  # so sandbox-local state can persist even when host paths are read-only.
-  -v "$SANDBOX_CLAUDE_STATE_FILE:/home/claude/.claude.json"
-  # Mount sandbox plugins directory (writable, isolated from host ~/.claude/plugins/)
-  -v "$SANDBOX_PLUGINS_DIR:/home/claude/.claude/plugins"
+  # Mount the sandbox mirror of Claude's JSON state file.
+  -v "$SANDBOX_CLAUDE_STATE_FILE:/home/claude/.claude.json${ro_suffix}"
+  # Mount sandbox plugins directory (isolated from host ~/.claude/plugins/)
+  -v "$SANDBOX_PLUGINS_DIR:/home/claude/.claude/plugins${ro_suffix}"
   # Add readonly mode tmpfs overlay (plans directory) when enabled
   ${readonly_args[@]+"${readonly_args[@]}"}
   # Add any profile-configured extra mounts, ports, and entrypoint overrides
@@ -779,11 +778,21 @@ if [ "$dry_run" = true ]; then
   [ ${#extra_ports[@]} -gt 0 ] && list_item "Ports" "${extra_ports[*]}" >&2
   [ "${network_mode:-bridge}" != "bridge" ] && list_item "Network" "${network_mode:-bridge}" >&2
   [ "$readonly_mode" = true ] && list_item "Readonly" "true" >&2
+  [ -n "$project_image_note" ] && note "$project_image_note" >&2
   echo "" >&2
   # Use printf %q for shell-safe quoting of each argument
   printf '%q ' "${docker_cmd[@]}"
   echo
   exit 0
+fi
+
+if [ -f ".claudebox.Dockerfile" ]; then
+  step "Building per-project image"
+  # Build quietly (-q) since this runs on every invocation
+  if ! docker build -q -f .claudebox.Dockerfile -t "$run_image" . >&2; then
+    error "Failed to build per-project image from .claudebox.Dockerfile"
+    exit 1
+  fi
 fi
 
 # --- Execute the container ---
