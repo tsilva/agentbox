@@ -357,6 +357,22 @@ else
   pass "ancestor blocked path exits non-zero"
 fi
 
+# Test: Running from $HOME should also be blocked because the implicit cwd mount
+# would expose blocked children.
+mkdir -p "$fake_home/project"
+output=$(
+  cd "$fake_home" &&
+  HOME="$fake_home" "$PROCESSED_TEMPLATE" --dry-run 2>&1 || true
+)
+assert_contains "$output" "Working directory blocked (security policy)" "implicit \$HOME cwd blocked"
+
+# Test: Running from a safe child under $HOME should still be allowed
+output=$(
+  cd "$fake_home/project" &&
+  HOME="$fake_home" "$PROCESSED_TEMPLATE" --dry-run 2>&1
+)
+assert_not_contains "$output" "Working directory blocked" "safe cwd under \$HOME allowed"
+
 # Test: /tmp is NOT blocked (common writable mount)
 mkdir -p /tmp/claudebox-test-allowed
 cat > .claudebox.json << 'EOF'

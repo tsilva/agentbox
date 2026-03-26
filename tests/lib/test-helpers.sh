@@ -96,7 +96,7 @@ assert_equals() {
 # Create a temporary test directory and cd into it
 # Sets TEST_DIR global variable
 setup_test_dir() {
-  TEST_DIR=$(mktemp -d)
+  TEST_DIR=$(mktemp -d /tmp/claudebox-test.XXXXXX 2>/dev/null || mktemp -d)
   cd "$TEST_DIR" || exit 1
   # Initialize as a git repo (many tests need this)
   git init -q

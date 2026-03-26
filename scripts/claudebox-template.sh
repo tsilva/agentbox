@@ -340,6 +340,19 @@ is_path_blocked() {
   return 1
 }
 
+# Validate the implicit working directory mount before any docker args are built.
+normalized_workdir=$(normalize_path "$workdir")
+if is_path_blocked "$normalized_workdir"; then
+  error "Working directory blocked (security policy): $workdir"
+  note "Run claudebox from a project directory that does not expose blocked paths"
+  exit 1
+elif [ -L "$workdir" ]; then
+  real_workdir=$(readlink -f "$workdir" 2>/dev/null || echo "unresolved")
+  error "Working directory is a symlink (security policy): $workdir → $real_workdir"
+  note "Run claudebox from the real directory path directly"
+  exit 1
+fi
+
 # --- Per-project configuration (.claudebox.json) ---
 if [ -f ".claudebox.json" ]; then
   # jq is required to parse the JSON config
