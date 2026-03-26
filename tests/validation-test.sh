@@ -236,6 +236,8 @@ EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
 assert_contains "$output" "does not exist" "non-existent path warned"
 
+rm -rf "$path_test_root" 2>/dev/null || true
+
 teardown_test_dir
 
 # --- Test: Port validation ---
