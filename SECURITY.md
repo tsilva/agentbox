@@ -13,6 +13,7 @@ claudebox runs Claude Code inside a Docker container with:
 - **Host filesystem**: Only explicitly mounted paths are accessible
 - **Host processes**: Container cannot see or signal host processes
 - **Privilege escalation**: Capabilities are dropped, no-new-privileges is set
+- **Symlink aliases to blocked paths**: Working directories and extra mounts must use canonical paths; any symlink hop is rejected before the container starts
 
 ### What is NOT isolated
 
@@ -45,9 +46,10 @@ If a `.claudebox.Dockerfile` exists in the project root, it is automatically bui
 ## Recommendations
 
 - Avoid mounting sensitive directories (SSH keys, credentials, etc.)
+- Use canonical paths directly for the working directory and extra mounts (`pwd -P` is useful here)
 - Use read-only mounts where possible
 - Review `.claudebox.json` profiles before use
-- Consider network isolation for sensitive workloads (future feature)
+- Use `network: "none"` for sensitive workloads that do not need outbound network access
 
 ## Reporting Vulnerabilities
 

@@ -5,6 +5,7 @@ set -euo pipefail
 # The binary lives at /opt/claude-code/ to avoid collision with the config
 # volume mount at ~/.claude/, so we symlink it into PATH on every boot.
 mkdir -p /home/claude/.local/bin
+mkdir -p /home/claude/.claude
 ln -sf /opt/claude-code/claude /home/claude/.local/bin/claude
 
 # Intentionally do not auto-source project-managed activation scripts.

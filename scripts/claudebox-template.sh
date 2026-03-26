@@ -311,11 +311,74 @@ BLOCKED_PATHS=(
 normalize_path() {
   local p="$1"
   local normalized="${p/#\~/$HOME}"
+  while [[ "$normalized" == *"//"* ]]; do
+    normalized="${normalized//\/\//\/}"
+  done
   while [[ "$normalized" != "/" && "$normalized" == */ ]]; do
     normalized="${normalized%/}"
   done
+  [ -n "$normalized" ] || normalized="/"
   echo "$normalized"
 }
+
+resolve_physical_path() {
+  local normalized="$1"
+
+  if [ -d "$normalized" ]; then
+    (
+      cd -P "$normalized" >/dev/null 2>&1 || exit 1
+      pwd -P
+    )
+  elif [ -e "$normalized" ]; then
+    local parent_dir base_name
+    parent_dir=$(dirname "$normalized")
+    base_name=$(basename "$normalized")
+    (
+      cd -P "$parent_dir" >/dev/null 2>&1 || exit 1
+      printf '%s/%s\n' "$(pwd -P)" "$base_name"
+    )
+  else
+    return 1
+  fi
+}
+
+path_has_symlink_hop() {
+  local normalized="$1"
+  local prefix="/"
+  local remainder component
+
+  [[ "$normalized" == /* ]] || return 1
+  remainder="${normalized#/}"
+  [ -n "$remainder" ] || return 1
+
+  while [ -n "$remainder" ]; do
+    component="${remainder%%/*}"
+    if [ "$component" = "$remainder" ]; then
+      remainder=""
+    else
+      remainder="${remainder#*/}"
+    fi
+    [ -n "$component" ] || continue
+
+    if [ "$prefix" = "/" ]; then
+      prefix="/$component"
+    else
+      prefix="$prefix/$component"
+    fi
+
+    [ -L "$prefix" ] && return 0
+  done
+
+  return 1
+}
+
+BLOCKED_PATH_ALIASES=("${BLOCKED_PATHS[@]}")
+for blocked_path in "${BLOCKED_PATHS[@]}"; do
+  blocked_physical=$(resolve_physical_path "$blocked_path" 2>/dev/null || true)
+  if [ -n "$blocked_physical" ] && [ "$blocked_physical" != "$blocked_path" ]; then
+    BLOCKED_PATH_ALIASES+=("$blocked_physical")
+  fi
+done
 
 is_same_or_descendant_path() {
   local candidate="$1"
@@ -329,7 +392,7 @@ is_same_or_descendant_path() {
 
 is_path_blocked() {
   local normalized="$1"
-  for blocked in "${BLOCKED_PATHS[@]}"; do
+  for blocked in "${BLOCKED_PATH_ALIASES[@]}"; do
     if is_same_or_descendant_path "$normalized" "$blocked" || \
       is_same_or_descendant_path "$blocked" "$normalized"; then
       return 0
@@ -338,16 +401,55 @@ is_path_blocked() {
   return 1
 }
 
+report_symlink_policy_error() {
+  local label="$1"
+  local path="$2"
+  local note_msg="${3:-}"
+  local normalized physical
+
+  normalized=$(normalize_path "$path")
+  physical=$(resolve_physical_path "$normalized" 2>/dev/null || true)
+
+  if [ -n "$physical" ] && [ "$physical" != "$normalized" ]; then
+    error "$label traverses a symlink (security policy): $path → $physical"
+  else
+    error "$label traverses a symlink (security policy): $path"
+  fi
+
+  [ -n "$note_msg" ] && note "$note_msg"
+}
+
+validate_strict_host_path() {
+  local label="$1"
+  local path="$2"
+  local note_msg="${3:-}"
+  local normalized physical
+
+  normalized=$(normalize_path "$path")
+  if is_path_blocked "$normalized"; then
+    error "$label blocked (security policy): $path"
+    [ -n "$note_msg" ] && note "$note_msg"
+    return 1
+  fi
+
+  if path_has_symlink_hop "$normalized"; then
+    report_symlink_policy_error "$label" "$path" "$note_msg"
+    return 1
+  fi
+
+  physical=$(resolve_physical_path "$normalized" 2>/dev/null || true)
+  if [ -n "$physical" ] && is_path_blocked "$physical"; then
+    error "$label blocked after path resolution (security policy): $path → $physical"
+    [ -n "$note_msg" ] && note "$note_msg"
+    return 1
+  fi
+
+  return 0
+}
+
 # Validate the implicit working directory mount before any docker args are built.
-normalized_workdir=$(normalize_path "$workdir")
-if is_path_blocked "$normalized_workdir"; then
-  error "Working directory blocked (security policy): $workdir"
-  note "Run claudebox from a project directory that does not expose blocked paths"
-  exit 1
-elif [ -L "$workdir" ]; then
-  real_workdir=$(readlink -f "$workdir" 2>/dev/null || echo "unresolved")
-  error "Working directory is a symlink (security policy): $workdir → $real_workdir"
-  note "Run claudebox from the real directory path directly"
+if ! validate_strict_host_path "Working directory" "$workdir" \
+  "Run claudebox from the canonical path directly"; then
   exit 1
 fi
 
@@ -415,14 +517,12 @@ if [ -f ".claudebox.json" ]; then
         [ -z "$mount_spec" ] && continue
         # Extract the host path (everything before the first colon)
         mount_path="${mount_spec%%:*}"
+        mount_readonly=false
+        [[ "$mount_spec" == *":ro" ]] && mount_readonly=true
         # Normalize path once for blocklist checks
         normalized_path=$(normalize_path "$mount_path")
-        # Check against dangerous path blocklist
-        if is_path_blocked "$normalized_path"; then
-          error "Mount path blocked (security policy): $mount_path"
-          exit 1
         # Reject paths with multiple colons (ambiguous Docker mount syntax)
-        elif [[ "$mount_spec" == *":"*":"*":"* ]]; then
+        if [[ "$mount_spec" == *":"*":"*":"* ]]; then
           warn "Skipping mount path containing ':': $mount_path"
         # Reject paths with path traversal sequences (../)
         elif [[ "$mount_path" =~ (^|/)\.\.($|/) ]]; then
@@ -430,24 +530,35 @@ if [ -f ".claudebox.json" ]; then
         # Reject paths with control characters (potential injection)
         elif [[ "$mount_path" =~ [[:cntrl:]] ]]; then
           warn "Skipping mount with invalid characters"
+        # Check against dangerous path blocklist
+        elif is_path_blocked "$normalized_path"; then
+          error "Skipping mount path blocked by security policy: $mount_path"
+          continue
+        # Reject any symlink hop in the source path
+        elif path_has_symlink_hop "$normalized_path"; then
+          report_symlink_policy_error "Skipping mount path" "$mount_path" \
+            "Specify the canonical path directly"
+          continue
         # Warn if the host path doesn't exist (Docker would create it as root)
         elif [ ! -e "$mount_path" ]; then
           warn "Mount path does not exist: $mount_path"
           note "Create it with: mkdir -p $mount_path"
-        # Reject symlinks (TOCTOU risk: symlink target could change between validation and mount)
-        elif [ -L "$mount_path" ]; then
-          real_path=$(readlink -f "$mount_path" 2>/dev/null || echo "unresolved")
-          error "Mount path is a symlink (security policy): $mount_path → $real_path"
-          note "Specify the actual path directly"
-          continue
         else
+          resolved_mount_path=$(resolve_physical_path "$normalized_path" 2>/dev/null || true)
+          if [ -n "$resolved_mount_path" ] && is_path_blocked "$resolved_mount_path"; then
+            error "Skipping mount path blocked after path resolution (security policy): $mount_path → $resolved_mount_path"
+            continue
+          fi
+
+          validated_mount_spec="$normalized_path:$normalized_path"
+          $mount_readonly && validated_mount_spec="${validated_mount_spec}:ro"
           # Valid mount — add to the docker run arguments
-          extra_mounts+=(-v "$mount_spec")
+          extra_mounts+=(-v "$validated_mount_spec")
           # Build human-readable mount info for sandbox awareness
-          if [[ "$mount_spec" == *":ro" ]]; then
-            extra_mounts_info+="- \`$mount_path\` (read-only)"$'\n'
+          if $mount_readonly; then
+            extra_mounts_info+="- \`$normalized_path\` (read-only)"$'\n'
           else
-            extra_mounts_info+="- \`$mount_path\` (read-write)"$'\n'
+            extra_mounts_info+="- \`$normalized_path\` (read-write)"$'\n'
           fi
         fi
       done < <(echo "$profile_config" | jq -r '.mounts[]')
@@ -500,13 +611,8 @@ fi
 git_dir=""
 if git -C "$workdir" rev-parse --git-dir &>/dev/null; then
   git_dir="$(cd "$workdir" && git rev-parse --absolute-git-dir)"
-  normalized_git_dir=$(normalize_path "$git_dir")
-  if is_path_blocked "$normalized_git_dir"; then
-    error "Git directory blocked (security policy): $git_dir"
-    exit 1
-  elif [ -L "$git_dir" ]; then
-    real_git_path=$(readlink -f "$git_dir" 2>/dev/null || echo "unresolved")
-    error "Git directory is a symlink (security policy): $git_dir → $real_git_path"
+  if ! validate_strict_host_path "Git directory" "$git_dir" \
+    "Use the repository's canonical .git path directly"; then
     exit 1
   fi
   extra_mounts+=(-v "$git_dir:$git_dir:ro")

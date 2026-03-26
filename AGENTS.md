@@ -101,7 +101,7 @@ Projects can define named profiles via `.claudebox.json` in the project root:
 
 **Fields:**
 - Root-level keys are profile names
-- `mounts[].path` (required): Absolute host path, mounted to the same path inside the container
+- `mounts[].path` (required): Absolute canonical host path, mounted to the same path inside the container
 - `mounts[].readonly` (optional): If `true`, mount is read-only (default: `false`)
 - `ports[].host` (required): Host port number (1-65535)
 - `ports[].container` (required): Container port number (1-65535)
@@ -117,7 +117,7 @@ Projects can define named profiles via `.claudebox.json` in the project root:
 - `jq` must be installed for config parsing (`brew install jq`)
 - If `jq` is missing or config is invalid, warnings are shown and extra mounts are skipped
 
-**Path behavior:** The working directory is mounted at its actual path (e.g., `/Users/foo/project` inside and outside). This allows file paths to work identically in both environments.
+**Path behavior:** The working directory is mounted at its canonical path (e.g., `/Users/foo/project` inside and outside). Any symlink hop in the working directory or an extra mount source is rejected, so use canonical paths directly.
 
 **Profile selection:**
 - With `--profile <name>` or `-P <name>` (uppercase): Use specified profile

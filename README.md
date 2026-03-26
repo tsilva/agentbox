@@ -44,7 +44,7 @@
 - **🔒 Isolated execution** — Claude runs in a container with no access to your host filesystem (except mounted paths)
 - **⚡ Full autonomy** — No permission prompts; Claude can execute any command inside the sandbox
 - **🧠 Sandbox awareness** — Claude automatically knows its constraints (read-only paths, blocked directories, resource limits)
-- **📁 Same-path mounting** — Your project directory is mounted at its actual path, so file paths work identically inside and outside the container
+- **📁 Same-path mounting** — Your project directory is mounted at its canonical path, so file paths work identically inside and outside the container
 - **⚙️ Per-project configuration** — Define additional mounts and ports via `.claudebox.json` for data directories, output folders, and more
 - **🐳 Per-project Dockerfile** — Customize the container with project-specific dependencies using `.claudebox.Dockerfile`
 - **🔌 Plugin support** — Marketplace plugins from `~/.claude/plugins/marketplaces` are mounted read-only into the container
@@ -127,6 +127,8 @@ The `shell` argument is useful for debugging or exploring what tools and files a
 
 Project virtualenv activation is manual. `claudebox` does not source `.venv/bin/activate` at startup, so repo-controlled shell code cannot run before Claude begins.
 
+Run `claudebox` from the canonical project path. Any symlink hop in the working directory or an extra mount source is rejected by policy, so on macOS use canonical paths such as `/private/tmp/...` instead of `/tmp/...` when mounting temp directories.
+
 **Print mode** (`-p` / `--print`) runs non-interactively, executes the prompt, and exits. This is useful for scripting and automation.
 
 ## ⚙️ Per-Project Configuration
@@ -156,7 +158,7 @@ Create a `.claudebox.json` file in your project root to define named profiles wi
 | Field | Required | Description |
 |-------|----------|-------------|
 | `<profile-name>` | Yes | Root-level keys are profile names |
-| `mounts[].path` | Yes | Absolute host path (mounted to the same path inside container) |
+| `mounts[].path` | Yes | Absolute canonical host path (mounted to the same path inside container) |
 | `mounts[].readonly` | No | If `true`, mount is read-only (default: `false`) |
 | `ports[].host` | Yes | Host port number (1-65535) |
 | `ports[].container` | Yes | Container port number (1-65535) |
@@ -168,7 +170,7 @@ Create a `.claudebox.json` file in your project root to define named profiles wi
 | `ulimit_nofile` | No | Open file descriptors limit (e.g., `"1024:2048"`) |
 | `ulimit_fsize` | No | Max file size in bytes (e.g., `1073741824`) |
 
-Mounts are rejected when they target a blocked path, a child of a blocked path, or a parent path that would expose blocked children such as `$HOME` or `~/.config`.
+Mounts are rejected when they target a blocked path, a child of a blocked path, a parent path that would expose blocked children such as `$HOME` or `~/.config`, or any path that traverses a symlinked directory component. Use canonical paths directly (`pwd -P` is useful here).
 
 **Git safety:** When running from a git repository, the `.git` directory is mounted read-only, preventing commits and other write operations. No SSH keys or git credentials are available in the container, so pushes will also fail. When running outside a git repo, a warning is displayed.
 
@@ -256,7 +258,7 @@ graph LR
 
 1. **`install.sh`** builds an OCI-compatible image and installs a standalone script to `~/.claudebox/bin/`
 2. Before each launch, claudebox refreshes its isolated auth mirror from host `~/.claude.json` and `~/.claude/.credentials.json` (when present)
-3. Running `claudebox` starts a container with your current directory mounted at its actual path
+3. Running `claudebox` starts a container with your current directory mounted at its canonical path
 4. Claude Code runs with `--dangerously-skip-permissions` inside the isolated environment
 5. All changes to the mounted directory are reflected in your project
 6. Optional: `.claudebox.json` adds extra mounts for data directories

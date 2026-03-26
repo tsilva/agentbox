@@ -93,10 +93,30 @@ assert_equals() {
   fi
 }
 
+canonicalize_path() {
+  local path="$1"
+
+  if [ -d "$path" ]; then
+    (
+      cd -P "$path" >/dev/null 2>&1 || exit 1
+      pwd -P
+    )
+  else
+    local parent_dir base_name
+    parent_dir=$(dirname "$path")
+    base_name=$(basename "$path")
+    (
+      cd -P "$parent_dir" >/dev/null 2>&1 || exit 1
+      printf '%s/%s\n' "$(pwd -P)" "$base_name"
+    )
+  fi
+}
+
 # Create a temporary test directory and cd into it
 # Sets TEST_DIR global variable
 setup_test_dir() {
   TEST_DIR=$(mktemp -d /tmp/claudebox-test.XXXXXX 2>/dev/null || mktemp -d)
+  TEST_DIR=$(canonicalize_path "$TEST_DIR")
   cd "$TEST_DIR" || exit 1
   # Initialize as a git repo (many tests need this)
   git init -q

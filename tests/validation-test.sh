@@ -37,9 +37,16 @@ LAST_FAKE_HOME=""
 
 setup_fake_home() {
   LAST_FAKE_HOME=$(mktemp -d /tmp/claudebox-fake-home.XXXXXX 2>/dev/null || mktemp -d)
+  LAST_FAKE_HOME=$(canonicalize_path "$LAST_FAKE_HOME")
   FAKE_HOMES+=("$LAST_FAKE_HOME")
   mkdir -p "$LAST_FAKE_HOME/.claudebox"
   cp "$REPO_ROOT/scripts/seccomp.json" "$LAST_FAKE_HOME/.claudebox/seccomp.json"
+}
+
+make_canonical_temp_dir() {
+  local temp_dir
+  temp_dir=$(mktemp -d /tmp/claudebox-temp.XXXXXX 2>/dev/null || mktemp -d)
+  canonicalize_path "$temp_dir"
 }
 
 # Cleanup on exit
@@ -94,27 +101,29 @@ echo "--- Path Injection Prevention ---"
 
 setup_test_dir
 git init -q
+path_test_root=$(make_canonical_temp_dir)
 
 # Test: Control characters in path should be rejected
 # Using printf to actually include a tab character
-printf '{"dev":{"mounts":[{"path":"/tmp/test\tpath"}]}}' > .claudebox.json
+printf '{"dev":{"mounts":[{"path":"%s"}]}}' "${path_test_root}/test"$'\t'"path" > .claudebox.json
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
 # Raw control characters make the JSON invalid before mount validation runs.
 assert_contains "$output" "Invalid .claudebox.json" "control chars in path rejected"
 
 # Test: Multiple colons in path should be rejected (Docker mount syntax ambiguity)
-cat > .claudebox.json << 'EOF'
-{"dev":{"mounts":[{"path":"/tmp/a:b:c"}]}}
+colon_path="${path_test_root}/a:b:c"
+cat > .claudebox.json << EOF
+{"dev":{"mounts":[{"path":"$colon_path"}]}}
 EOF
 # First create the path so it passes the existence check
-mkdir -p "/tmp/a:b:c" 2>/dev/null || true
+mkdir -p "$colon_path" 2>/dev/null || true
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
 assert_contains "$output" "containing ':'" "colon in path warned"
-rmdir "/tmp/a:b:c" 2>/dev/null || true
+rmdir "$colon_path" 2>/dev/null || true
 
 # Test: Path traversal should be rejected
-cat > .claudebox.json << 'EOF'
-{"dev":{"mounts":[{"path":"/tmp/test/../../../etc"}]}}
+cat > .claudebox.json << EOF
+{"dev":{"mounts":[{"path":"$path_test_root/test/../../../etc"}]}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
 assert_contains "$output" "path traversal" "path traversal rejected"
@@ -276,42 +285,42 @@ cat > .claudebox.json << EOF
 {"dev":{"mounts":[{"path":"$HOME/.ssh"}]}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
-assert_contains "$output" "blocked (security policy)" "\$HOME/.ssh blocked"
+assert_contains "$output" "blocked by security policy" "\$HOME/.ssh blocked"
 
 # Test: /etc should be blocked
 cat > .claudebox.json << 'EOF'
 {"dev":{"mounts":[{"path":"/etc"}]}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
-assert_contains "$output" "blocked (security policy)" "/etc blocked"
+assert_contains "$output" "blocked by security policy" "/etc blocked"
 
 # Test: /etc/passwd should be blocked (child of /etc)
 cat > .claudebox.json << 'EOF'
 {"dev":{"mounts":[{"path":"/etc/passwd"}]}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
-assert_contains "$output" "blocked (security policy)" "/etc/passwd blocked"
+assert_contains "$output" "blocked by security policy" "/etc/passwd blocked"
 
 # Test: / should be blocked
 cat > .claudebox.json << 'EOF'
 {"dev":{"mounts":[{"path":"/"}]}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
-assert_contains "$output" "blocked (security policy)" "/ blocked"
+assert_contains "$output" "blocked by security policy" "/ blocked"
 
 # Test: ~/.aws should be blocked
 cat > .claudebox.json << EOF
 {"dev":{"mounts":[{"path":"$HOME/.aws"}]}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
-assert_contains "$output" "blocked (security policy)" "\$HOME/.aws blocked"
+assert_contains "$output" "blocked by security policy" "\$HOME/.aws blocked"
 
 # Test: ~/.docker should be blocked
 cat > .claudebox.json << EOF
 {"dev":{"mounts":[{"path":"$HOME/.docker"}]}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
-assert_contains "$output" "blocked (security policy)" "\$HOME/.docker blocked"
+assert_contains "$output" "blocked by security policy" "\$HOME/.docker blocked"
 
 # Test: $HOME should be blocked because it would expose blocked children
 setup_fake_home
@@ -321,14 +330,14 @@ cat > .claudebox.json << EOF
 {"dev":{"mounts":[{"path":"$fake_home"}]}}
 EOF
 output=$(HOME="$fake_home" "$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
-assert_contains "$output" "blocked (security policy)" "\$HOME ancestor blocked"
+assert_contains "$output" "blocked by security policy" "\$HOME ancestor blocked"
 
 # Test: $HOME/.config should be blocked because it would expose .config/gcloud
 cat > .claudebox.json << EOF
 {"dev":{"mounts":[{"path":"$fake_home/.config"}]}}
 EOF
 output=$(HOME="$fake_home" "$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
-assert_contains "$output" "blocked (security policy)" "\$HOME/.config ancestor blocked"
+assert_contains "$output" "blocked by security policy" "\$HOME/.config ancestor blocked"
 
 # Test: Safe child under $HOME should still be allowed
 cat > .claudebox.json << EOF
@@ -337,24 +346,24 @@ EOF
 output=$(HOME="$fake_home" "$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
 assert_not_contains "$output" "blocked" "safe child under \$HOME allowed"
 
-# Test: Blocked path exits with non-zero
+# Test: Blocked mount is skipped without aborting the whole run
 cat > .claudebox.json << EOF
 {"dev":{"mounts":[{"path":"$HOME/.ssh"}]}}
 EOF
 if "$PROCESSED_TEMPLATE" --dry-run --profile dev &>/dev/null; then
-  fail "blocked path should exit non-zero"
+  pass "blocked path skipped without aborting"
 else
-  pass "blocked path exits non-zero"
+  fail "blocked path should be skipped, not abort"
 fi
 
-# Test: Ancestor mount also exits with non-zero
+# Test: Ancestor mount is also skipped without aborting
 cat > .claudebox.json << EOF
 {"dev":{"mounts":[{"path":"$fake_home"}]}}
 EOF
 if HOME="$fake_home" "$PROCESSED_TEMPLATE" --dry-run --profile dev &>/dev/null; then
-  fail "ancestor blocked path should exit non-zero"
+  pass "ancestor blocked path skipped without aborting"
 else
-  pass "ancestor blocked path exits non-zero"
+  fail "ancestor blocked path should be skipped, not abort"
 fi
 
 # Test: Running from $HOME should also be blocked because the implicit cwd mount
@@ -373,14 +382,71 @@ output=$(
 )
 assert_not_contains "$output" "Working directory blocked" "safe cwd under \$HOME allowed"
 
-# Test: /tmp is NOT blocked (common writable mount)
-mkdir -p /tmp/claudebox-test-allowed
-cat > .claudebox.json << 'EOF'
-{"dev":{"mounts":[{"path":"/tmp/claudebox-test-allowed"}]}}
+# Test: Canonical temp paths are not blocked
+allowed_mount_dir=$(make_canonical_temp_dir)
+cat > .claudebox.json << EOF
+{"dev":{"mounts":[{"path":"$allowed_mount_dir"}]}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
-assert_not_contains "$output" "blocked" "/tmp is not blocked"
-rmdir /tmp/claudebox-test-allowed 2>/dev/null || true
+assert_not_contains "$output" "blocked" "canonical temp path is not blocked"
+rm -rf "$allowed_mount_dir" 2>/dev/null || true
+
+teardown_test_dir
+
+# --- Test: Symlink path enforcement ---
+echo ""
+echo "--- Symlink Path Enforcement ---"
+
+setup_test_dir
+git init -q
+
+setup_fake_home
+fake_home="$LAST_FAKE_HOME"
+symlink_root=$(make_canonical_temp_dir)
+mkdir -p "$fake_home/.ssh/child" "$symlink_root/safe-target/data" "$symlink_root/real/project"
+ln -s "$fake_home/.ssh" "$symlink_root/blocked-link"
+ln -s "$symlink_root/safe-target" "$symlink_root/safe-link"
+ln -s "$symlink_root/real" "$symlink_root/workdir-link"
+
+# Test: Mount with blocked target behind a symlinked ancestor is rejected and skipped
+cat > .claudebox.json << EOF
+{"dev":{"mounts":[{"path":"$symlink_root/blocked-link/child"}]}}
+EOF
+output=$(HOME="$fake_home" "$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
+assert_contains "$output" "traverses a symlink (security policy)" "blocked symlink ancestor rejected"
+assert_contains "$output" "docker run" "blocked symlink ancestor skipped without aborting"
+
+# Test: Mount with a safe target behind a symlinked ancestor is also rejected
+cat > .claudebox.json << EOF
+{"dev":{"mounts":[{"path":"$symlink_root/safe-link/data"}]}}
+EOF
+output=$(HOME="$fake_home" "$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
+assert_contains "$output" "traverses a symlink (security policy)" "safe symlink ancestor rejected"
+assert_contains "$output" "docker run" "safe symlink ancestor skipped without aborting"
+
+# Test: Canonical safe path is still accepted
+cat > .claudebox.json << EOF
+{"dev":{"mounts":[{"path":"$symlink_root/safe-target/data"}]}}
+EOF
+output=$(HOME="$fake_home" "$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
+assert_not_contains "$output" "traverses a symlink" "canonical safe mount accepted"
+assert_contains "$output" "$symlink_root/safe-target/data:$symlink_root/safe-target/data" "canonical safe mount included"
+
+# Test: Working directory via symlinked ancestor is rejected
+output=$(
+  cd "$symlink_root/workdir-link/project" &&
+  HOME="$fake_home" "$PROCESSED_TEMPLATE" --dry-run 2>&1 || true
+)
+assert_contains "$output" "Working directory traverses a symlink" "symlinked cwd rejected"
+
+# Test: Canonical working directory is still accepted
+output=$(
+  cd "$symlink_root/real/project" &&
+  HOME="$fake_home" "$PROCESSED_TEMPLATE" --dry-run 2>&1
+)
+assert_not_contains "$output" "Working directory traverses a symlink" "canonical cwd accepted"
+
+rm -rf "$symlink_root" 2>/dev/null || true
 
 teardown_test_dir
 
@@ -441,15 +507,15 @@ setup_test_dir
 git init -q
 
 # Create test directories
-mkdir -p /tmp/test-mount-rw
-mkdir -p /tmp/test-mount-ro
+test_mount_rw=$(make_canonical_temp_dir)
+test_mount_ro=$(make_canonical_temp_dir)
 
-cat > .claudebox.json << 'EOF'
+cat > .claudebox.json << EOF
 {
   "dev": {
     "mounts": [
-      {"path": "/tmp/test-mount-rw", "readonly": false},
-      {"path": "/tmp/test-mount-ro", "readonly": true}
+      {"path": "$test_mount_rw", "readonly": false},
+      {"path": "$test_mount_ro", "readonly": true}
     ]
   }
 }
@@ -457,12 +523,12 @@ EOF
 
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
 # RW mount should not have :ro suffix (beyond the path)
-assert_matches "$output" "/tmp/test-mount-rw:/tmp/test-mount-rw[^:]" "rw mount without :ro"
+assert_matches "$output" "$test_mount_rw:$test_mount_rw[^:]" "rw mount without :ro"
 # RO mount should have :ro suffix
-assert_contains "$output" "/tmp/test-mount-ro:/tmp/test-mount-ro:ro" "ro mount has :ro"
+assert_contains "$output" "$test_mount_ro:$test_mount_ro:ro" "ro mount has :ro"
 
 # Cleanup
-rmdir /tmp/test-mount-rw /tmp/test-mount-ro 2>/dev/null || true
+rm -rf "$test_mount_rw" "$test_mount_ro" 2>/dev/null || true
 
 teardown_test_dir
 
@@ -490,12 +556,12 @@ echo "--- Dry-run Summary ---"
 setup_test_dir
 git init -q
 
-mkdir -p /tmp/test-dryrun-mount
-cat > .claudebox.json << 'EOF'
+test_dryrun_mount=$(make_canonical_temp_dir)
+cat > .claudebox.json << EOF
 {
   "dev": {
     "mounts": [
-      {"path": "/tmp/test-dryrun-mount", "readonly": true}
+      {"path": "$test_dryrun_mount", "readonly": true}
     ],
     "ports": [
       {"host": 3000, "container": 3000}
@@ -505,11 +571,11 @@ cat > .claudebox.json << 'EOF'
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
 assert_contains "$output" "Profile: dev" "dry-run shows profile"
-assert_contains "$output" "/tmp/test-dryrun-mount" "dry-run shows mount paths"
+assert_contains "$output" "$test_dryrun_mount" "dry-run shows mount paths"
 assert_contains "$output" "Ports:" "dry-run shows ports"
 assert_contains "$output" "dry-run" "dry-run shows summary header"
 
-rmdir /tmp/test-dryrun-mount 2>/dev/null || true
+rm -rf "$test_dryrun_mount" 2>/dev/null || true
 
 teardown_test_dir
 
