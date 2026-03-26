@@ -15,6 +15,56 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/style.sh
 [[ -f "$SCRIPT_DIR/style.sh" ]] && source "$SCRIPT_DIR/style.sh" || true
 
+# Fallback to plain-text output if the styling helper is unavailable.
+if ! declare -F warn >/dev/null; then
+  section() { printf '\n== %s ==\n\n' "$1" >&2; }
+  success() { printf '  ✓ %s\n' "$1" >&2; }
+  error() { printf '  ✗ %s\n' "$1" >&2; }
+  warn() { printf '  ! %s\n' "$1" >&2; }
+  info() { printf '  • %s\n' "$1" >&2; }
+  step() { printf '  -> %s\n' "$1" >&2; }
+  note() { printf '  Note: %s\n' "$1" >&2; }
+  error_block() {
+    local line
+    for line in "$@"; do
+      printf '  %s\n' "$line" >&2
+    done
+  }
+  list_item() { printf '  %s: %s\n' "$1" "$2" >&2; }
+  choose() {
+    local hdr="$1"
+    shift
+    local total="$#"
+    local choice
+    local idx=1
+    local opt
+
+    printf '  %s\n' "$hdr" >&2
+    for opt in "$@"; do
+      printf '  %s) %s\n' "$idx" "$opt" >&2
+      idx=$((idx + 1))
+    done
+
+    while true; do
+      printf '  [1-%s]: ' "$total" >&2
+      read -r choice < /dev/tty
+      if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "$total" ]; then
+        break
+      fi
+      printf '  Invalid choice\n' >&2
+    done
+
+    idx=1
+    for opt in "$@"; do
+      if [ "$idx" -eq "$choice" ]; then
+        printf '%s\n' "$opt"
+        return 0
+      fi
+      idx=$((idx + 1))
+    done
+  }
+fi
+
 # Docker image name (replaced at install time by do_install)
 IMAGE_NAME="PLACEHOLDER_IMAGE_NAME"
 
@@ -30,63 +80,73 @@ DEFAULT_PIDS_LIMIT=256
 # Seccomp profile path (for syscall filtering)
 SECCOMP_PROFILE="$HOME/.claudebox/seccomp.json"
 
-# Ensure the persistent config directory and session state file exist.
-# claude-config is mounted into the container as ~/.claude/ for credentials.
-mkdir -p ~/.claudebox/claude-config
-mkdir -p ~/.claudebox/claude-dotconfig
-mkdir -p ~/.claudebox/plugins
+# Host Claude state is the source of truth for auth/account data. claudebox keeps
+# isolated writable mirrors under ~/.claudebox/ and refreshes them before launch.
+HOST_CLAUDE_DIR="$HOME/.claude"
+HOST_CLAUDE_STATE_FILE="$HOME/.claude.json"
+HOST_CREDENTIALS_FILE="$HOST_CLAUDE_DIR/.credentials.json"
+CLAUDEBOX_STATE_DIR="$HOME/.claudebox"
+SANDBOX_CLAUDE_DIR="$CLAUDEBOX_STATE_DIR/claude-config"
+SANDBOX_DOTCONFIG_DIR="$CLAUDEBOX_STATE_DIR/claude-dotconfig"
+SANDBOX_PLUGINS_DIR="$CLAUDEBOX_STATE_DIR/plugins"
+SANDBOX_CLAUDE_STATE_FILE="$CLAUDEBOX_STATE_DIR/.claude.json"
+SANDBOX_CREDENTIALS_FILE="$SANDBOX_CLAUDE_DIR/.credentials.json"
+
+mkdir -p "$SANDBOX_CLAUDE_DIR"
+mkdir -p "$SANDBOX_DOTCONFIG_DIR"
+mkdir -p "$SANDBOX_PLUGINS_DIR"
+
+sync_directory() {
+  local src="$1"
+  local dest="$2"
+
+  if [ -d "$src" ]; then
+    if command -v rsync &>/dev/null; then
+      mkdir -p "$dest"
+      rsync -a --delete "$src"/ "$dest"/ 2>/dev/null || true
+    else
+      rm -rf "$dest" 2>/dev/null || true
+      cp -R "$src" "$dest" 2>/dev/null || true
+    fi
+  fi
+}
+
+sync_host_auth_state() {
+  # Host ~/.claude.json carries the current account and auth metadata. Copy it
+  # into the sandbox mirror so each container launch starts from fresh host state.
+  if [ -s "$HOST_CLAUDE_STATE_FILE" ]; then
+    cp "$HOST_CLAUDE_STATE_FILE" "$SANDBOX_CLAUDE_STATE_FILE" 2>/dev/null || true
+  elif [ ! -s "$SANDBOX_CLAUDE_STATE_FILE" ]; then
+    echo '{}' > "$SANDBOX_CLAUDE_STATE_FILE"
+  fi
+
+  # Claude Code may still use ~/.claude/.credentials.json on some installs. If
+  # the host no longer has this file, remove any stale sandbox copy.
+  if [ -f "$HOST_CREDENTIALS_FILE" ]; then
+    cp "$HOST_CREDENTIALS_FILE" "$SANDBOX_CREDENTIALS_FILE" 2>/dev/null || true
+    chmod 600 "$SANDBOX_CREDENTIALS_FILE" 2>/dev/null || true
+  else
+    rm -f "$SANDBOX_CREDENTIALS_FILE" 2>/dev/null || true
+  fi
+}
+
+sync_host_auth_state
 
 # Sync sandbox plugins from host (always sync to keep in sync with host state)
-# Use rsync if available for efficient incremental sync, fall back to cp
-if [ -d ~/.claude/plugins/marketplaces ]; then
-  if command -v rsync &>/dev/null; then
-    rsync -a --delete ~/.claude/plugins/marketplaces/ ~/.claudebox/plugins/marketplaces/ 2>/dev/null || true
-  else
-    rm -rf ~/.claudebox/plugins/marketplaces 2>/dev/null || true
-    cp -R ~/.claude/plugins/marketplaces ~/.claudebox/plugins/ 2>/dev/null || true
-  fi
-fi
+sync_directory "$HOST_CLAUDE_DIR/plugins/marketplaces" "$SANDBOX_PLUGINS_DIR/marketplaces"
+
 # Sync cache directory (contains installed plugin files)
-if [ -d ~/.claude/plugins/cache ]; then
-  if command -v rsync &>/dev/null; then
-    rsync -a --delete ~/.claude/plugins/cache/ ~/.claudebox/plugins/cache/ 2>/dev/null || true
-  else
-    rm -rf ~/.claudebox/plugins/cache 2>/dev/null || true
-    cp -R ~/.claude/plugins/cache ~/.claudebox/plugins/ 2>/dev/null || true
-  fi
-fi
+sync_directory "$HOST_CLAUDE_DIR/plugins/cache" "$SANDBOX_PLUGINS_DIR/cache"
+
 # Sync metadata files with path conversion (host paths → container paths)
 for metadata_file in known_marketplaces.json installed_plugins.json; do
-  if [ -f ~/.claude/plugins/"$metadata_file" ]; then
-    content=$(<~/.claude/plugins/"$metadata_file")
-    printf '%s\n' "${content//$HOME//home/claude}" > ~/.claudebox/plugins/"$metadata_file" 2>/dev/null || true
+  if [ -f "$HOST_CLAUDE_DIR/plugins/$metadata_file" ]; then
+    content=$(<"$HOST_CLAUDE_DIR/plugins/$metadata_file")
+    printf '%s\n' "${content//$HOME//home/claude}" > "$SANDBOX_PLUGINS_DIR/$metadata_file" 2>/dev/null || true
   fi
 done
-# Initialize .claude.json if missing or empty (Claude Code expects valid JSON)
-[ -s ~/.claudebox/.claude.json ] || echo '{}' > ~/.claudebox/.claude.json
-# --- Marketplace state sync ---
-# Claude Code tracks official marketplace install state in .claude.json. If a previous
-# sandbox session failed to install (e.g., network issue), it saves fail/retry fields:
-#   - officialMarketplaceAutoInstallFailReason: "unknown"
-#   - officialMarketplaceAutoInstallRetryCount: N
-#   - officialMarketplaceAutoInstallNextRetryTime: timestamp
-# This causes "Failed to install Anthropic marketplace" on every startup until resolved.
-# Fix: inherit the host's successful install state and remove any stale fail fields.
-if command -v jq &>/dev/null && [ -f ~/.claude.json ]; then
-  host_state=$(jq '{
-    officialMarketplaceAutoInstallAttempted,
-    officialMarketplaceAutoInstalled
-  } | with_entries(select(.value != null))' ~/.claude.json 2>/dev/null)
-  if [ -n "$host_state" ] && [ "$host_state" != "{}" ]; then
-    updated=$(jq --argjson host "$host_state" '. + $host | del(
-      .officialMarketplaceAutoInstallFailReason,
-      .officialMarketplaceAutoInstallRetryCount,
-      .officialMarketplaceAutoInstallLastAttemptTime,
-      .officialMarketplaceAutoInstallNextRetryTime
-    )' ~/.claudebox/.claude.json 2>/dev/null) && \
-      [ -n "$updated" ] && printf '%s\n' "$updated" > ~/.claudebox/.claude.json
-  fi
-fi
+# Claude Code expects valid JSON in the mirrored state file.
+[ -s "$SANDBOX_CLAUDE_STATE_FILE" ] || echo '{}' > "$SANDBOX_CLAUDE_STATE_FILE"
 
 # --- Argument parsing ---
 # Arrays and variables for building the docker run command
@@ -530,7 +590,7 @@ docker_cmd=(
   --tmpfs "/tmp:rw,nosuid,size=$TMPFS_TMP_SIZE"
   --tmpfs "/home/claude/.cache:rw,nosuid,size=$TMPFS_CACHE_SIZE"
   --tmpfs "/home/claude/.npm:rw,nosuid,size=$TMPFS_NPM_SIZE"
-  -v "$HOME/.claudebox/claude-dotconfig:/home/claude/.config${ro_suffix}"
+  -v "$SANDBOX_DOTCONFIG_DIR:/home/claude/.config${ro_suffix}"
   --tmpfs "/home/claude/.local:rw,nosuid,size=$TMPFS_LOCAL_SIZE,uid=1000,gid=1000"
   # Apply resource limits (if configured in profile)
   ${resource_args[@]+"${resource_args[@]}"}
@@ -547,13 +607,14 @@ docker_cmd=(
   --workdir "$workdir"
   # Mount the current project directory at the same path for path parity
   -v "${workdir}:${workdir}${ro_suffix}"
-  # Persist Claude Code credentials and config across sessions
-  -v "$HOME/.claudebox/claude-config:/home/claude/.claude${ro_suffix}"
-  # Persist Claude Code session state (conversation history, etc.)
-  # NOTE: Always writable - session state must persist even in readonly mode
-  -v "$HOME/.claudebox/.claude.json:/home/claude/.claude.json"
+  # Mount the sandbox mirror of Claude's ~/.claude directory. Auth is refreshed
+  # from the host before launch, but subsequent writes stay isolated to claudebox.
+  -v "$SANDBOX_CLAUDE_DIR:/home/claude/.claude${ro_suffix}"
+  # Mount the sandbox mirror of Claude's JSON state file. NOTE: Always writable
+  # so sandbox-local state can persist even when host paths are read-only.
+  -v "$SANDBOX_CLAUDE_STATE_FILE:/home/claude/.claude.json"
   # Mount sandbox plugins directory (writable, isolated from host ~/.claude/plugins/)
-  -v ~/.claudebox/plugins:/home/claude/.claude/plugins
+  -v "$SANDBOX_PLUGINS_DIR:/home/claude/.claude/plugins"
   # Add readonly mode tmpfs overlay (plans directory) when enabled
   ${readonly_args[@]+"${readonly_args[@]}"}
   # Add any profile-configured extra mounts, ports, and entrypoint overrides

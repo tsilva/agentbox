@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="logo.png" alt="claudebox" width="512"/>
+  <img src="https://raw.githubusercontent.com/tsilva/claudebox/main/logo.png" alt="claudebox" width="512"/>
 
   [![CI](https://img.shields.io/github/actions/workflow/status/tsilva/claudebox/ci.yml?branch=main&label=CI)](https://github.com/tsilva/claudebox/actions)
   [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
@@ -251,11 +251,12 @@ graph LR
 ```
 
 1. **`install.sh`** builds an OCI-compatible image and installs a standalone script to `~/.claudebox/bin/`
-2. Running `claudebox` starts a container with your current directory mounted at its actual path
-3. Claude Code runs with `--dangerously-skip-permissions` inside the isolated environment
-4. All changes to the mounted directory are reflected in your project
-5. Optional: `.claudebox.json` adds extra mounts for data directories
-6. Marketplace plugins from `~/.claude/plugins/marketplaces` are mounted read-only into the container
+2. Before each launch, claudebox refreshes its isolated auth mirror from host `~/.claude.json` and `~/.claude/.credentials.json` (when present)
+3. Running `claudebox` starts a container with your current directory mounted at its actual path
+4. Claude Code runs with `--dangerously-skip-permissions` inside the isolated environment
+5. All changes to the mounted directory are reflected in your project
+6. Optional: `.claudebox.json` adds extra mounts for data directories
+7. Marketplace plugins from `~/.claude/plugins/` are synced into the sandbox mirror before the container starts
 
 ## 🧠 Sandbox Awareness
 
@@ -342,11 +343,15 @@ The container user UID is set at build time to match your host user. If you see 
 
 ### "Configuration file corrupted" on first run
 
-The `.claude.json` file needs to be valid JSON. Reset it:
+The sandbox mirror of `.claude.json` needs to be valid JSON. Remove it and claudebox will rebuild it from your host Claude state on the next run:
 
 ```bash
-echo '{}' > ~/.claudebox/.claude.json
+rm -f ~/.claudebox/.claude.json
 ```
+
+### Claude says the session is expiring soon
+
+claudebox refreshes sandbox auth from your host Claude state on each launch. If you still see expiry warnings after upgrading, refresh your Claude login once outside the container and then start a new claudebox session.
 
 ### Per-project mounts not working
 

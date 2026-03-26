@@ -58,8 +58,8 @@ assert_contains "$output" "--read-only" "read-only rootfs present"
 # Test: tmpfs mounts have nosuid flag
 assert_contains "$output" "nosuid" "tmpfs has nosuid flag"
 
-# Test: tmpfs mounts have proper ownership (uid=1000,gid=1000)
-assert_contains "$output" "uid=1000,gid=1000" "tmpfs has correct ownership"
+# Test: tmpfs mounts have proper ownership (printf %q may escape commas)
+assert_matches "$output" "uid=1000(\\\\,|,)gid=1000" "tmpfs has correct ownership"
 
 teardown_test_dir
 

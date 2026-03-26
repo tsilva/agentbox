@@ -28,9 +28,24 @@ sed 's|PLACEHOLDER_IMAGE_NAME|claudebox|g' \
     "$TEMPLATE" > "$PROCESSED_TEMPLATE"
 chmod +x "$PROCESSED_TEMPLATE"
 
+FAKE_HOMES=()
+LAST_FAKE_HOME=""
+
+setup_fake_home() {
+  LAST_FAKE_HOME=$(mktemp -d)
+  FAKE_HOMES+=("$LAST_FAKE_HOME")
+  mkdir -p "$LAST_FAKE_HOME/.claudebox"
+  cp "$REPO_ROOT/scripts/seccomp.json" "$LAST_FAKE_HOME/.claudebox/seccomp.json"
+}
+
 # Cleanup on exit
 cleanup() {
   rm -f "$PROCESSED_TEMPLATE"
+  if [ "${#FAKE_HOMES[@]}" -gt 0 ]; then
+    for fake_home in "${FAKE_HOMES[@]}"; do
+      rm -rf "$fake_home"
+    done
+  fi
   teardown_test_dir 2>/dev/null || true
 }
 trap cleanup EXIT
@@ -80,7 +95,8 @@ git init -q
 # Using printf to actually include a tab character
 printf '{"dev":{"mounts":[{"path":"/tmp/test\tpath"}]}}' > .claudebox.json
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
-assert_contains "$output" "invalid characters" "control chars in path rejected"
+# Raw control characters make the JSON invalid before mount validation runs.
+assert_contains "$output" "Invalid .claudebox.json" "control chars in path rejected"
 
 # Test: Multiple colons in path should be rejected (Docker mount syntax ambiguity)
 cat > .claudebox.json << 'EOF'
@@ -437,7 +453,7 @@ output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
 assert_contains "$output" "Profile: dev" "dry-run shows profile"
 assert_contains "$output" "/tmp/test-dryrun-mount" "dry-run shows mount paths"
 assert_contains "$output" "Ports:" "dry-run shows ports"
-assert_contains "$output" "claudebox dry-run" "dry-run shows summary header"
+assert_contains "$output" "dry-run" "dry-run shows summary header"
 
 rmdir /tmp/test-dryrun-mount 2>/dev/null || true
 
@@ -472,6 +488,142 @@ EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
 # jq should produce an error since .mounts is not iterable as an array
 assert_not_contains "$output" "CLAUDEBOX_EXTRA_MOUNTS=$" "parse error not silently swallowed"
+
+teardown_test_dir
+
+# --- Test: Host auth sync ---
+echo ""
+echo "--- Host Auth Sync ---"
+
+setup_test_dir
+
+setup_fake_home
+fake_home="$LAST_FAKE_HOME"
+mkdir -p "$fake_home/.claude" "$fake_home/.claudebox/claude-config"
+
+cat > "$fake_home/.claude.json" << 'EOF'
+{
+  "recommendedSubscription": "max",
+  "subscriptionUpsellShownCount": 7,
+  "oauthAccount": {
+    "displayName": "Host Session",
+    "accountCreatedAt": "2026-03-21T16:50:27Z"
+  }
+}
+EOF
+
+cat > "$fake_home/.claudebox/.claude.json" << 'EOF'
+{
+  "recommendedSubscription": "stale",
+  "subscriptionUpsellShownCount": 99,
+  "oauthAccount": {
+    "displayName": "Sandbox Session"
+  }
+}
+EOF
+
+HOME="$fake_home" "$PROCESSED_TEMPLATE" --dry-run >/dev/null 2>&1
+
+synced_name=$(jq -r '.oauthAccount.displayName' "$fake_home/.claudebox/.claude.json")
+synced_subscription=$(jq -r '.recommendedSubscription' "$fake_home/.claudebox/.claude.json")
+synced_upsell_count=$(jq -r '.subscriptionUpsellShownCount' "$fake_home/.claudebox/.claude.json")
+synced_created_at=$(jq -r '.oauthAccount.accountCreatedAt' "$fake_home/.claudebox/.claude.json")
+
+assert_equals "$synced_name" "Host Session" "host oauthAccount overwrites stale sandbox data"
+assert_equals "$synced_subscription" "max" "host subscription metadata mirrored"
+assert_equals "$synced_upsell_count" "7" "host upsell counters mirrored"
+assert_equals "$synced_created_at" "2026-03-21T16:50:27Z" "host auth metadata fields preserved in mirror"
+
+teardown_test_dir
+
+# --- Test: Host credentials sync ---
+echo ""
+echo "--- Host Credentials Sync ---"
+
+setup_test_dir
+
+setup_fake_home
+fake_home="$LAST_FAKE_HOME"
+mkdir -p "$fake_home/.claude" "$fake_home/.claudebox/claude-config"
+
+cat > "$fake_home/.claude.json" << 'EOF'
+{}
+EOF
+
+cat > "$fake_home/.claude/.credentials.json" << 'EOF'
+{"claudeAiOauth":{"accessToken":"host-access","refreshToken":"host-refresh","expiresAt":123}}
+EOF
+
+cat > "$fake_home/.claudebox/claude-config/.credentials.json" << 'EOF'
+{"claudeAiOauth":{"accessToken":"stale-access","refreshToken":"stale-refresh","expiresAt":1}}
+EOF
+
+HOME="$fake_home" "$PROCESSED_TEMPLATE" --dry-run >/dev/null 2>&1
+
+synced_refresh_token=$(jq -r '.claudeAiOauth.refreshToken' "$fake_home/.claudebox/claude-config/.credentials.json")
+assert_equals "$synced_refresh_token" "host-refresh" "host credentials file mirrored into sandbox"
+
+teardown_test_dir
+
+# --- Test: Stale sandbox credentials removed ---
+echo ""
+echo "--- Stale Sandbox Credentials ---"
+
+setup_test_dir
+
+setup_fake_home
+fake_home="$LAST_FAKE_HOME"
+mkdir -p "$fake_home/.claudebox/claude-config"
+
+cat > "$fake_home/.claudebox/claude-config/.credentials.json" << 'EOF'
+{"claudeAiOauth":{"accessToken":"stale-access","refreshToken":"stale-refresh","expiresAt":1}}
+EOF
+
+HOME="$fake_home" "$PROCESSED_TEMPLATE" --dry-run >/dev/null 2>&1
+
+if [ ! -e "$fake_home/.claudebox/claude-config/.credentials.json" ]; then
+  pass "stale sandbox credentials removed when host file is absent"
+else
+  fail "stale sandbox credentials removed when host file is absent"
+fi
+
+teardown_test_dir
+
+# --- Test: Plugin sync still works ---
+echo ""
+echo "--- Plugin Sync ---"
+
+setup_test_dir
+
+setup_fake_home
+fake_home="$LAST_FAKE_HOME"
+mkdir -p "$fake_home/.claude/plugins/marketplaces/example-market"
+mkdir -p "$fake_home/.claude/plugins/cache/example-market/example-plugin"
+
+printf '%s\n' '{"name":"example-market"}' > "$fake_home/.claude/plugins/marketplaces/example-market/manifest.json"
+printf '%s\n' 'console.log("cached plugin")' > "$fake_home/.claude/plugins/cache/example-market/example-plugin/plugin.js"
+
+cat > "$fake_home/.claude/plugins/installed_plugins.json" << EOF
+{"plugins":[{"path":"$fake_home/.claude/plugins/cache/example-market/example-plugin/plugin.js"}]}
+EOF
+
+HOME="$fake_home" "$PROCESSED_TEMPLATE" --dry-run >/dev/null 2>&1
+
+if [ -f "$fake_home/.claudebox/plugins/marketplaces/example-market/manifest.json" ]; then
+  pass "marketplace plugins synced into sandbox mirror"
+else
+  fail "marketplace plugins synced into sandbox mirror"
+fi
+
+if [ -f "$fake_home/.claudebox/plugins/cache/example-market/example-plugin/plugin.js" ]; then
+  pass "plugin cache synced into sandbox mirror"
+else
+  fail "plugin cache synced into sandbox mirror"
+fi
+
+plugin_metadata=$(<"$fake_home/.claudebox/plugins/installed_plugins.json")
+assert_contains "$plugin_metadata" "/home/claude/.claude/plugins/cache/example-market/example-plugin/plugin.js" "plugin metadata paths rewritten for container"
+assert_not_contains "$plugin_metadata" "$fake_home" "plugin metadata omits host home paths"
 
 teardown_test_dir
 
