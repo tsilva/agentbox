@@ -116,6 +116,64 @@ sync_directory() {
   fi
 }
 
+json_file_has_auth_value() {
+  local file="$1"
+  local mode="$2"
+
+  [ -f "$file" ] || return 1
+
+  perl -MJSON::PP -e '
+    use strict;
+    use warnings;
+
+    my ($path, $mode) = @ARGV;
+    local $/;
+
+    open my $fh, "<", $path or exit 1;
+    my $content = <$fh>;
+    my $data = eval { decode_json($content) };
+    exit 1 if $@ || ref($data) ne "HASH";
+
+    if ($mode eq "credentials") {
+      my $oauth = $data->{claudeAiOauth};
+      exit(
+        ref($oauth) eq "HASH"
+        && defined($oauth->{refreshToken})
+        && $oauth->{refreshToken} ne ""
+          ? 0
+          : 1
+      );
+    }
+
+    if ($mode eq "state") {
+      my $oauth_account = $data->{oauthAccount};
+      exit(
+        ref($oauth_account) eq "HASH"
+        && scalar(keys %{$oauth_account}) > 0
+          ? 0
+          : 1
+      );
+    }
+
+    exit 1;
+  ' "$file" "$mode" >/dev/null 2>&1
+}
+
+host_auth_available() {
+  json_file_has_auth_value "$HOST_CREDENTIALS_FILE" "credentials" && return 0
+  json_file_has_auth_value "$HOST_CLAUDE_STATE_FILE" "state" && return 0
+  return 1
+}
+
+require_host_auth() {
+  host_auth_available && return 0
+
+  error_block "No host Claude login detected." \
+    "Run 'claude' on the host and complete /login before starting claudebox." \
+    "Sandbox-only login state under ~/.claudebox is ignored."
+  exit 1
+}
+
 sync_host_auth_state() {
   # Host ~/.claude.json carries the current account and auth metadata. Copy it
   # into the sandbox mirror so each container launch starts from fresh host state.
@@ -140,24 +198,29 @@ ensure_runtime_claude_md_link() {
   ln -s "runtime/CLAUDE.md" "$SANDBOX_CLAUDE_DIR/CLAUDE.md"
 }
 
-sync_host_auth_state
-ensure_runtime_claude_md_link
+sync_host_plugins() {
+  # Sync sandbox plugins from host (always sync to keep in sync with host state)
+  sync_directory "$HOST_CLAUDE_DIR/plugins/marketplaces" "$SANDBOX_PLUGINS_DIR/marketplaces"
 
-# Sync sandbox plugins from host (always sync to keep in sync with host state)
-sync_directory "$HOST_CLAUDE_DIR/plugins/marketplaces" "$SANDBOX_PLUGINS_DIR/marketplaces"
+  # Sync cache directory (contains installed plugin files)
+  sync_directory "$HOST_CLAUDE_DIR/plugins/cache" "$SANDBOX_PLUGINS_DIR/cache"
 
-# Sync cache directory (contains installed plugin files)
-sync_directory "$HOST_CLAUDE_DIR/plugins/cache" "$SANDBOX_PLUGINS_DIR/cache"
+  # Sync metadata files with path conversion (host paths → container paths)
+  for metadata_file in known_marketplaces.json installed_plugins.json; do
+    if [ -f "$HOST_CLAUDE_DIR/plugins/$metadata_file" ]; then
+      content=$(<"$HOST_CLAUDE_DIR/plugins/$metadata_file")
+      printf '%s\n' "${content//$HOME//home/claude}" > "$SANDBOX_PLUGINS_DIR/$metadata_file" 2>/dev/null || true
+    fi
+  done
+}
 
-# Sync metadata files with path conversion (host paths → container paths)
-for metadata_file in known_marketplaces.json installed_plugins.json; do
-  if [ -f "$HOST_CLAUDE_DIR/plugins/$metadata_file" ]; then
-    content=$(<"$HOST_CLAUDE_DIR/plugins/$metadata_file")
-    printf '%s\n' "${content//$HOME//home/claude}" > "$SANDBOX_PLUGINS_DIR/$metadata_file" 2>/dev/null || true
-  fi
-done
-# Claude Code expects valid JSON in the mirrored state file.
-[ -s "$SANDBOX_CLAUDE_STATE_FILE" ] || echo '{}' > "$SANDBOX_CLAUDE_STATE_FILE"
+prepare_sandbox_state() {
+  sync_host_auth_state
+  ensure_runtime_claude_md_link
+  sync_host_plugins
+  # Claude Code expects valid JSON in the mirrored state file.
+  [ -s "$SANDBOX_CLAUDE_STATE_FILE" ] || echo '{}' > "$SANDBOX_CLAUDE_STATE_FILE"
+}
 
 # --- Argument parsing ---
 # Arrays and variables for building the docker run command
@@ -247,6 +310,13 @@ if [ "$first_cmd" = "update" ]; then
   exec "$repo_path/install.sh" --update
 fi
 
+# Dry-run inspects launch state without starting Claude, so skip auth gating there.
+if [ "$dry_run" != true ]; then
+  require_host_auth
+fi
+
+prepare_sandbox_state
+
 # --- Version staleness check ---
 # Warn the user if a newer Claude Code version is available upstream.
 # Uses a 24h-cached check against the GCS latest endpoint.
@@ -264,7 +334,11 @@ check_version_staleness() {
   if [ -f "$cache_file" ]; then
     now=$(date +%s)
     # macOS stat uses -f %m, Linux uses -c %Y
-    file_mtime=$(stat -f %m "$cache_file" 2>/dev/null || stat -c %Y "$cache_file" 2>/dev/null || echo 0)
+    if stat -f %m "$cache_file" >/dev/null 2>&1; then
+      file_mtime=$(stat -f %m "$cache_file" 2>/dev/null)
+    else
+      file_mtime=$(stat -c %Y "$cache_file" 2>/dev/null || echo 0)
+    fi
     cache_age=$(( now - file_mtime ))
     if [ "$cache_age" -lt 86400 ]; then
       latest_version=$(<"$cache_file")

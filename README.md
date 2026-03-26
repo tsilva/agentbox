@@ -86,6 +86,8 @@ cd ~/my-project
 claudebox
 ```
 
+If Claude Code is not already logged in on the host, run `claude` outside the sandbox and complete `/login` first. `claudebox` will not reuse sandbox-only login state from a previous run.
+
 ## 📋 Requirements
 
 - Docker installed and running. On macOS, [Docker Desktop](https://docs.docker.com/get-docker/) is the standard setup; the repo is also exercised on Ubuntu in CI.
@@ -261,7 +263,7 @@ graph LR
 ```
 
 1. **`install.sh`** builds an OCI-compatible image and installs a standalone script to `~/.claudebox/bin/`
-2. Before each launch, claudebox refreshes its isolated auth mirror from host `~/.claude.json` and `~/.claude/.credentials.json` (when present)
+2. Before each launch, claudebox requires an existing host Claude login, then refreshes its isolated auth mirror from host `~/.claude.json` and `~/.claude/.credentials.json`
 3. Running `claudebox` starts a container with your current directory mounted at its canonical path
 4. Claude Code runs with `--dangerously-skip-permissions` inside the isolated environment
 5. All changes to the mounted directory are reflected in your project
@@ -365,7 +367,14 @@ rm -f ~/.claudebox/.claude.json
 
 ### Claude says the session is expiring soon
 
-claudebox refreshes sandbox auth from your host Claude state on each launch. If you still see expiry warnings after upgrading, refresh your Claude login once outside the container and then start a new claudebox session.
+claudebox refreshes sandbox auth from your host Claude state on each launch. If you still see expiry warnings after upgrading, refresh your Claude login outside the container first:
+
+```bash
+claude
+# then complete /login
+```
+
+Then start a new `claudebox` session. Logging in inside the sandbox is not persisted across future launches.
 
 ### Per-project mounts not working
 

@@ -49,6 +49,43 @@ make_canonical_temp_dir() {
   canonicalize_path "$temp_dir"
 }
 
+setup_fake_docker() {
+  FAKE_DOCKER_MARKER="$TEST_DIR/docker-invoked"
+  local fake_bin="$TEST_DIR/fake-bin"
+
+  mkdir -p "$fake_bin"
+  cat > "$fake_bin/docker" <<EOF
+#!/bin/sh
+printf '%s\n' invoked >> "$FAKE_DOCKER_MARKER"
+printf '%s\n' "fake docker invoked" >&2
+exit 99
+EOF
+  chmod +x "$fake_bin/docker"
+  FAKE_DOCKER_PATH="$fake_bin:$PATH"
+}
+
+assert_docker_not_invoked() {
+  local name="$1"
+
+  if [ ! -e "$FAKE_DOCKER_MARKER" ]; then
+    pass "$name"
+  else
+    fail "$name"
+    echo "    Docker marker should not exist: $FAKE_DOCKER_MARKER" >&2
+  fi
+}
+
+assert_docker_invoked() {
+  local name="$1"
+
+  if [ -e "$FAKE_DOCKER_MARKER" ]; then
+    pass "$name"
+  else
+    fail "$name"
+    echo "    Expected Docker marker at: $FAKE_DOCKER_MARKER" >&2
+  fi
+}
+
 # Cleanup on exit
 cleanup() {
   rm -f "$PROCESSED_TEMPLATE"
@@ -434,7 +471,7 @@ assert_contains "$output" "$symlink_root/safe-target/data:$symlink_root/safe-tar
 
 # Test: Working directory via symlinked ancestor is rejected
 output=$(
-  cd "$symlink_root/workdir-link/project" &&
+  cd "$symlink_root/workdir-link/project" || exit 1
   HOME="$fake_home" "$PROCESSED_TEMPLATE" --dry-run 2>&1 || true
 )
 assert_contains "$output" "Working directory traverses a symlink" "symlinked cwd rejected"
@@ -523,7 +560,7 @@ EOF
 
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
 # RW mount should not have :ro suffix (beyond the path)
-assert_matches "$output" "$test_mount_rw:$test_mount_rw[^:]" "rw mount without :ro"
+assert_matches "$output" "${test_mount_rw}:${test_mount_rw}[^:]" "rw mount without :ro"
 # RO mount should have :ro suffix
 assert_contains "$output" "$test_mount_ro:$test_mount_ro:ro" "ro mount has :ro"
 
@@ -608,6 +645,84 @@ EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
 # jq should produce an error since .mounts is not iterable as an array
 assert_not_contains "$output" "CLAUDEBOX_EXTRA_MOUNTS=$" "parse error not silently swallowed"
+
+teardown_test_dir
+
+# --- Test: Host auth preflight ---
+echo ""
+echo "--- Host Auth Preflight ---"
+
+setup_test_dir
+
+setup_fake_home
+fake_home="$LAST_FAKE_HOME"
+setup_fake_docker
+mkdir -p "$fake_home/.claudebox/claude-config"
+
+output=$(HOME="$fake_home" PATH="$FAKE_DOCKER_PATH" "$PROCESSED_TEMPLATE" -p "hello" 2>&1 || true)
+assert_contains "$output" "No host Claude login detected." "missing host auth is rejected"
+assert_contains "$output" "Run 'claude' on the host and complete /login" "missing host auth points to host login"
+assert_contains "$output" "Sandbox-only login state under ~/.claudebox is ignored." "missing host auth explains sandbox state is ignored"
+assert_docker_not_invoked "missing host auth exits before docker"
+
+teardown_test_dir
+
+setup_test_dir
+
+setup_fake_home
+fake_home="$LAST_FAKE_HOME"
+setup_fake_docker
+mkdir -p "$fake_home/.claudebox/claude-config"
+
+cat > "$fake_home/.claudebox/claude-config/.credentials.json" << 'EOF'
+{"claudeAiOauth":{"accessToken":"sandbox-access","refreshToken":"sandbox-refresh","expiresAt":123}}
+EOF
+
+cat > "$fake_home/.claudebox/.claude.json" << 'EOF'
+{"oauthAccount":{"displayName":"Sandbox Session"}}
+EOF
+
+output=$(HOME="$fake_home" PATH="$FAKE_DOCKER_PATH" "$PROCESSED_TEMPLATE" shell 2>&1 || true)
+assert_contains "$output" "No host Claude login detected." "sandbox-only auth does not satisfy preflight"
+assert_docker_not_invoked "sandbox-only auth still exits before docker"
+
+teardown_test_dir
+
+setup_test_dir
+
+setup_fake_home
+fake_home="$LAST_FAKE_HOME"
+setup_fake_docker
+mkdir -p "$fake_home/.claude"
+
+cat > "$fake_home/.claude/.credentials.json" << 'EOF'
+{"claudeAiOauth":{"refreshToken":}}
+EOF
+
+cat > "$fake_home/.claude.json" << 'EOF'
+{"oauthAccount":
+EOF
+
+output=$(HOME="$fake_home" PATH="$FAKE_DOCKER_PATH" "$PROCESSED_TEMPLATE" -p "hello" 2>&1 || true)
+assert_contains "$output" "No host Claude login detected." "invalid host auth JSON is rejected"
+assert_docker_not_invoked "invalid host auth exits before docker"
+
+teardown_test_dir
+
+setup_test_dir
+
+setup_fake_home
+fake_home="$LAST_FAKE_HOME"
+setup_fake_docker
+mkdir -p "$fake_home/.claude"
+
+cat > "$fake_home/.claude/.credentials.json" << 'EOF'
+{"claudeAiOauth":{"accessToken":"host-access","refreshToken":"host-refresh","expiresAt":123}}
+EOF
+
+output=$(HOME="$fake_home" PATH="$FAKE_DOCKER_PATH" "$PROCESSED_TEMPLATE" -p "hello" 2>&1 || true)
+assert_contains "$output" "fake docker invoked" "valid host auth allows launch flow to continue"
+assert_docker_invoked "valid host auth reaches docker"
 
 teardown_test_dir
 
