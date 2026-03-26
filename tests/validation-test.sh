@@ -361,7 +361,7 @@ fi
 # would expose blocked children.
 mkdir -p "$fake_home/project"
 output=$(
-  cd "$fake_home" &&
+  cd "$fake_home" || exit 1
   HOME="$fake_home" "$PROCESSED_TEMPLATE" --dry-run 2>&1 || true
 )
 assert_contains "$output" "Working directory blocked (security policy)" "implicit \$HOME cwd blocked"

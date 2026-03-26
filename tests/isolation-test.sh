@@ -42,11 +42,16 @@ else
   echo "    Caps: $caps" >&2
 fi
 
-# Test that ping fails (requires CAP_NET_RAW)
-ping_result=$(docker run --rm --cap-drop=ALL --entrypoint /bin/bash \
-  claudebox -c "ping -c 1 127.0.0.1 2>&1" || true)
+# Test that raw socket creation fails without CAP_NET_RAW
+raw_socket_result=$(docker run --rm --cap-drop=ALL --entrypoint /bin/bash \
+  claudebox -c "python3 -c 'import socket; socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)' 2>&1" || true)
 
-assert_contains "$ping_result" "Operation not permitted" "ping blocked (CAP_NET_RAW dropped)"
+if echo "$raw_socket_result" | grep -qE "(Operation not permitted|PermissionError)"; then
+  pass "raw sockets blocked (CAP_NET_RAW dropped)"
+else
+  fail "raw sockets allowed without CAP_NET_RAW"
+  echo "    Result: $raw_socket_result" >&2
+fi
 
 # --- Test: Filesystem isolation ---
 echo ""
@@ -87,29 +92,28 @@ assert_not_contains "$pid1_cmdline" "launchd" "PID 1 is not host launchd"
 assert_not_contains "$pid1_cmdline" "/sbin/init" "PID 1 is not host init"
 
 # Container should only see its own processes
-ps_count=$(docker run --rm --entrypoint /bin/bash \
-  claudebox -c "ps aux | wc -l")
-# Should be small number (ps header + bash + ps itself)
-if [ "$ps_count" -lt 10 ]; then
-  pass "container sees limited processes ($ps_count lines)"
+proc_count=$(docker run --rm --entrypoint /bin/bash \
+  claudebox -c "find /proc -maxdepth 1 -type d -regex '/proc/[0-9]+' | wc -l")
+# Should be a small number of processes within the PID namespace
+if [ "$proc_count" -lt 10 ]; then
+  pass "container sees limited processes ($proc_count processes)"
 else
-  fail "container sees too many processes ($ps_count lines)"
+  fail "container sees too many processes ($proc_count processes)"
 fi
 
 # --- Test: Network isolation with --network none ---
 echo ""
 echo "--- Network Isolation ---"
 
-# With --network none, only loopback interface should exist
-interfaces=$(docker run --rm --network none --entrypoint /bin/bash \
-  claudebox -c "ip -o link show | awk '{print \$2}' | tr -d ':'")
+# With --network none, there should be no configured routes
+route_count=$(docker run --rm --network none --entrypoint /bin/bash \
+  claudebox -c "tail -n +2 /proc/net/route | wc -l")
 
-# Should only see "lo" (loopback)
-if [ "$interfaces" = "lo" ]; then
-  pass "network none: only loopback interface"
+if [ "$route_count" -eq 0 ]; then
+  pass "network none: no routes configured"
 else
-  fail "network none: unexpected interfaces"
-  echo "    Found: $interfaces" >&2
+  fail "network none: unexpected routes configured"
+  echo "    Route count: $route_count" >&2
 fi
 
 # External DNS should fail with --network none
@@ -173,7 +177,7 @@ fi
 
 # /sys should be read-only
 sys_write_result=$(docker run --rm --entrypoint /bin/bash \
-  claudebox -c "echo test > /sys/test 2>&1" || true)
+  claudebox -c "echo test > /sys/test" 2>&1 || true)
 # Should fail with permission denied or read-only
 if echo "$sys_write_result" | grep -qE "(Permission denied|Read-only|No such file)"; then
   pass "/sys is protected"

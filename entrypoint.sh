@@ -12,8 +12,8 @@ ln -sf /opt/claude-code/claude /home/claude/.local/bin/claude
 # before Claude starts. Users can still activate a venv manually if needed.
 
 claude_md_path="/home/claude/.claude/CLAUDE.md"
-# The wrapper bind-mounts this path to a dedicated runtime file so it stays
-# writable even when ~/.claude is mounted read-only.
+# The wrapper makes this path a symlink to ~/.claude/runtime/CLAUDE.md, with
+# runtime backed by tmpfs so it stays writable even when ~/.claude is read-only.
 
 # Generate sandbox awareness CLAUDE.md
 cat > "$claude_md_path" << 'SANDBOX_EOF'

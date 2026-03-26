@@ -12,7 +12,9 @@ set -euo pipefail
 # Source terminal styling library (graceful fallback to plain echo)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd 2>/dev/null)" || true
 # shellcheck source=style.sh
-[[ -f "${SCRIPT_DIR:-}/style.sh" ]] && source "${SCRIPT_DIR:-}/style.sh" || true
+if [ -f "${SCRIPT_DIR:-}/style.sh" ]; then
+  source "${SCRIPT_DIR:-}/style.sh"
+fi
 
 # Docker image name used for building and running containers
 IMAGE_NAME="claudebox"

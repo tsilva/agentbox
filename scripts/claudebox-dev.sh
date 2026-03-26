@@ -18,7 +18,9 @@ set -euo pipefail
 # Source terminal styling library (graceful fallback to plain echo)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../style.sh
-[[ -f "$SCRIPT_DIR/../style.sh" ]] && source "$SCRIPT_DIR/../style.sh" || true
+if [ -f "$SCRIPT_DIR/../style.sh" ]; then
+  source "$SCRIPT_DIR/../style.sh"
+fi
 
 # Resolve the repo root from this script's location (scripts/ → repo root)
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

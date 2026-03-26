@@ -263,7 +263,13 @@ RUN chmod 755 /opt/claude-code/claude && chown claude:claude /opt/claude-code/cl
 USER claude
 EOF
 
-output=$(HOME="$LAST_FAKE_HOME" DOCKER_HOST="$REAL_DOCKER_HOST" "$PROCESSED_TEMPLATE" --readonly -p "self-check" 2>&1)
+readonly_exit=0
+if output=$(HOME="$LAST_FAKE_HOME" DOCKER_HOST="$REAL_DOCKER_HOST" "$PROCESSED_TEMPLATE" --readonly -p "self-check" 2>&1); then
+  readonly_exit=0
+else
+  readonly_exit=$?
+fi
+assert_equals "$readonly_exit" "0" "readonly startup exits successfully"
 assert_contains "$output" "stub claude ran" "readonly startup reaches Claude"
 
 teardown_test_dir

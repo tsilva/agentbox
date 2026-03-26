@@ -13,7 +13,9 @@ set -euo pipefail
 # Source terminal styling library (graceful fallback to plain echo)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=style.sh
-[[ -f "$SCRIPT_DIR/style.sh" ]] && source "$SCRIPT_DIR/style.sh" || true
+if [ -f "$SCRIPT_DIR/style.sh" ]; then
+  source "$SCRIPT_DIR/style.sh"
+fi
 
 # Fallback to plain-text output if the styling helper is unavailable.
 if ! declare -F warn >/dev/null; then
@@ -89,17 +91,15 @@ CLAUDEBOX_STATE_DIR="$HOME/.claudebox"
 SANDBOX_CLAUDE_DIR="$CLAUDEBOX_STATE_DIR/claude-config"
 SANDBOX_DOTCONFIG_DIR="$CLAUDEBOX_STATE_DIR/claude-dotconfig"
 SANDBOX_PLUGINS_DIR="$CLAUDEBOX_STATE_DIR/plugins"
-SANDBOX_RUNTIME_DIR="$CLAUDEBOX_STATE_DIR/runtime"
 SANDBOX_CLAUDE_STATE_FILE="$CLAUDEBOX_STATE_DIR/.claude.json"
 SANDBOX_CREDENTIALS_FILE="$SANDBOX_CLAUDE_DIR/.credentials.json"
-SANDBOX_RUNTIME_CLAUDE_MD_FILE="$SANDBOX_RUNTIME_DIR/CLAUDE.md"
 
 mkdir -p "$SANDBOX_CLAUDE_DIR"
 mkdir -p "$SANDBOX_DOTCONFIG_DIR"
 mkdir -p "$SANDBOX_PLUGINS_DIR"
-mkdir -p "$SANDBOX_RUNTIME_DIR"
 mkdir -p "$SANDBOX_CLAUDE_DIR/plugins"
 mkdir -p "$SANDBOX_CLAUDE_DIR/plans"
+mkdir -p "$SANDBOX_CLAUDE_DIR/runtime"
 
 sync_directory() {
   local src="$1"
@@ -135,15 +135,13 @@ sync_host_auth_state() {
   fi
 }
 
-ensure_runtime_claude_md_files() {
+ensure_runtime_claude_md_link() {
   rm -rf "$SANDBOX_CLAUDE_DIR/CLAUDE.md"
-  rm -rf "$SANDBOX_RUNTIME_CLAUDE_MD_FILE"
-  : > "$SANDBOX_CLAUDE_DIR/CLAUDE.md"
-  : > "$SANDBOX_RUNTIME_CLAUDE_MD_FILE"
+  ln -s "runtime/CLAUDE.md" "$SANDBOX_CLAUDE_DIR/CLAUDE.md"
 }
 
 sync_host_auth_state
-ensure_runtime_claude_md_files
+ensure_runtime_claude_md_link
 
 # Sync sandbox plugins from host (always sync to keep in sync with host state)
 sync_directory "$HOST_CLAUDE_DIR/plugins/marketplaces" "$SANDBOX_PLUGINS_DIR/marketplaces"
@@ -649,8 +647,8 @@ docker_cmd=(
   # Mount the sandbox mirror of Claude's ~/.claude directory. Auth is refreshed
   # from the host before launch, but subsequent writes stay isolated to claudebox.
   -v "$SANDBOX_CLAUDE_DIR:/home/claude/.claude${ro_suffix}"
-  # Keep sandbox-awareness CLAUDE.md writable even when ~/.claude is read-only.
-  -v "$SANDBOX_RUNTIME_CLAUDE_MD_FILE:/home/claude/.claude/CLAUDE.md"
+  # Keep sandbox-awareness CLAUDE.md writable via a tmpfs-backed runtime path.
+  --tmpfs "/home/claude/.claude/runtime:rw,nosuid,size=16m,uid=1000,gid=1000"
   # Mount the sandbox mirror of Claude's JSON state file. NOTE: Always writable
   # so sandbox-local state can persist even when host paths are read-only.
   -v "$SANDBOX_CLAUDE_STATE_FILE:/home/claude/.claude.json"

@@ -11,7 +11,9 @@ set -euo pipefail
 # Source terminal styling library (graceful fallback to plain echo)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=style.sh
-[[ -f "$SCRIPT_DIR/style.sh" ]] && source "$SCRIPT_DIR/style.sh" || true
+if [ -f "$SCRIPT_DIR/style.sh" ]; then
+  source "$SCRIPT_DIR/style.sh"
+fi
 
 # Parse --yes flag (skip confirmation prompt)
 auto_yes=false
