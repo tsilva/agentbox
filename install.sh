@@ -128,6 +128,11 @@ do_install() {
   cp "${REPO_ROOT}/scripts/seccomp.json" "$HOME/.claudebox/seccomp.json"
   success "Installed $HOME/.claudebox/seccomp.json"
 
+  # Copy the trusted entrypoint used to override repo-controlled project images
+  cp "${REPO_ROOT}/entrypoint.sh" "$HOME/.claudebox/entrypoint.sh"
+  chmod +x "$HOME/.claudebox/entrypoint.sh"
+  success "Installed $HOME/.claudebox/entrypoint.sh"
+
   # Copy the style library for the standalone CLI
   cp "${REPO_ROOT}/style.sh" "$bin_dir/style.sh"
   success "Installed $bin_dir/style.sh"

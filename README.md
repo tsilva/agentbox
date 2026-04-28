@@ -83,6 +83,7 @@ Then reload your shell and head to any project directory:
 
 ```bash
 cd ~/my-project
+claudebox trust   # after reviewing the project
 claudebox
 ```
 
@@ -91,7 +92,7 @@ If Claude Code is not already logged in on the host, run `claude` outside the sa
 ## 📋 Requirements
 
 - Docker installed and running. On macOS, [Docker Desktop](https://docs.docker.com/get-docker/) is the standard setup; the repo is also exercised on Ubuntu in CI.
-- **Optional:** `jq` for per-project configuration support (`brew install jq` or your platform package manager)
+- **Optional unless `.claudebox.json` is present:** `jq` for per-project configuration support (`brew install jq` or your platform package manager)
 
 ## 💻 Usage
 
@@ -112,6 +113,11 @@ claudebox -p --output-format json "list all functions"
 # Drop into a bash shell to inspect the sandbox environment
 claudebox shell
 
+# Trust the current project for networked Claude credentials
+claudebox trust
+claudebox trust --list
+claudebox untrust
+
 # With profiles (see Per-Project Configuration)
 claudebox --profile dev       # Use specific profile
 claudebox -P prod             # Short form (-P uppercase)
@@ -123,6 +129,9 @@ claudebox --readonly
 
 # Print the full docker run command without executing container or project-image builds
 claudebox --dry-run
+
+# Allow a reviewed repo-controlled project Dockerfile for this launch
+claudebox --allow-project-dockerfile
 
 # Update the installed script and base image
 claudebox update
@@ -209,7 +218,7 @@ claudebox                 # Interactive prompt to select profile
 }
 ```
 
-**Note:** Requires `jq` to be installed. If `jq` is missing, claudebox skips `.claudebox.json` with a warning. If the config file is invalid, claudebox exits with an error so you can fix it before launch.
+**Note:** Requires `jq` to be installed. If `.claudebox.json` exists and `jq` is missing, claudebox exits instead of skipping profile settings. If the config file is invalid, claudebox exits with an error so you can fix it before launch.
 
 **Example use case:** Git worktrees for parallel feature development:
 
@@ -239,7 +248,13 @@ RUN apt-get update && apt-get install -y python3 python3-pip
 RUN pip3 install pandas
 ```
 
-When present, a per-project image is automatically built before each normal run. This lets you pre-install tools, libraries, or system packages that your project needs without modifying the shared base image. `--dry-run` skips the build and prints a note instead.
+Per-project Dockerfiles are a trusted build boundary. They can execute arbitrary Docker build steps, so claudebox refuses to use them unless the current launch includes `--allow-project-dockerfile`:
+
+```bash
+claudebox --allow-project-dockerfile
+```
+
+When allowed, claudebox still forces the runtime back to its trusted entrypoint and UID 1000. `--dry-run` never builds the project image.
 
 ## 🛠️ Commands
 
@@ -251,6 +266,9 @@ When present, a per-project image is automatically built before each normal run.
 | `./scripts/claudebox-dev.sh update` | Pull latest changes and rebuild |
 | `./scripts/claudebox-dev.sh kill` | Force stop any running containers |
 | `claudebox update` | Update an installed `claudebox` checkout and rebuild the image |
+| `claudebox trust` | Trust the current canonical project path for networked Claude credentials |
+| `claudebox trust --list` | List trusted project paths |
+| `claudebox untrust` | Remove trust for the current project path |
 
 ## 🔧 How It Works
 
@@ -263,19 +281,20 @@ graph LR
 ```
 
 1. **`install.sh`** builds an OCI-compatible image and installs a standalone script to `~/.claudebox/bin/`
-2. Before each launch, claudebox requires an existing host Claude login, then refreshes its isolated auth mirror from host `~/.claude.json` plus either host `~/.claude/.credentials.json` or the macOS `Claude Code-credentials` keychain item
-3. Running `claudebox` starts a container with your current directory mounted at its canonical path
-4. Claude Code runs with `--dangerously-skip-permissions` inside the isolated environment
-5. All changes to the mounted directory are reflected in your project
-6. Optional: `.claudebox.json` adds extra mounts for data directories
-7. Host plugins from `~/.claude/plugins/` are synced into the sandbox mirror, including marketplace manifests, plugin cache, and rewritten metadata paths
+2. Before each networked launch, claudebox requires the canonical project path to be trusted with `claudebox trust`
+3. Before each launch, claudebox requires an existing host Claude login, then refreshes its isolated auth mirror from host `~/.claude.json` plus either host `~/.claude/.credentials.json` or the macOS `Claude Code-credentials` keychain item
+4. Running `claudebox` starts a container with your current directory mounted at its canonical path
+5. Claude Code runs with `--dangerously-skip-permissions` inside the isolated environment
+6. All changes to the mounted directory are reflected in your project
+7. Optional: `.claudebox.json` adds extra mounts for data directories
+8. Host plugins from `~/.claude/plugins/` are synced into the sandbox mirror, including marketplace manifests, plugin cache, and rewritten metadata paths
 
 ## 🧠 Sandbox Awareness
 
 At container startup, claudebox generates a `CLAUDE.md` file at `~/.claude/CLAUDE.md` inside the container. Claude Code automatically loads this file, making the AI aware of its environment constraints:
 
 - **Filesystem restrictions** — Read-only root filesystem, writable locations (`/tmp`, `~/.cache`, etc.)
-- **Blocked paths** — No access to `~/.ssh`, `~/.aws`, `~/.gnupg`, and parent mounts like `$HOME` or `~/.config` that would expose them
+- **Blocked paths** — No access to sensitive locations such as `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/Library`, hidden `$HOME` children, and parent mounts like `$HOME` or `~/.config` that would expose them
 - **Git restrictions** — `.git` directory is read-only; commits and pushes are blocked
 - **Profile settings** — Network mode, CPU/memory limits, extra mounts with access modes
 

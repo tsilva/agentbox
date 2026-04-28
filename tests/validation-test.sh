@@ -41,6 +41,7 @@ setup_fake_home() {
   FAKE_HOMES+=("$LAST_FAKE_HOME")
   mkdir -p "$LAST_FAKE_HOME/.claudebox"
   cp "$REPO_ROOT/scripts/seccomp.json" "$LAST_FAKE_HOME/.claudebox/seccomp.json"
+  cp "$REPO_ROOT/entrypoint.sh" "$LAST_FAKE_HOME/.claudebox/entrypoint.sh"
 }
 
 make_canonical_temp_dir() {
@@ -425,6 +426,15 @@ EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
 assert_contains "$output" "blocked by security policy" "\$HOME/.docker blocked"
 
+# Test: common user-secret paths should be blocked
+for sensitive_path in "$HOME/Library" "$HOME/.config/gh" "$HOME/.git-credentials" "$HOME/.pypirc"; do
+  cat > .claudebox.json << EOF
+{"dev":{"mounts":[{"path":"$sensitive_path"}]}}
+EOF
+  output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
+  assert_contains "$output" "blocked by security policy" "$sensitive_path blocked"
+done
+
 # Test: $HOME should be blocked because it would expose blocked children
 setup_fake_home
 fake_home="$LAST_FAKE_HOME"
@@ -441,6 +451,14 @@ cat > .claudebox.json << EOF
 EOF
 output=$(HOME="$fake_home" "$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
 assert_contains "$output" "blocked by security policy" "\$HOME/.config ancestor blocked"
+
+# Test: any hidden direct child under $HOME should be blocked by default
+mkdir -p "$fake_home/.customsecret"
+cat > .claudebox.json << EOF
+{"dev":{"mounts":[{"path":"$fake_home/.customsecret"}]}}
+EOF
+output=$(HOME="$fake_home" "$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
+assert_contains "$output" "blocked by security policy" "hidden \$HOME child blocked"
 
 # Test: Safe child under $HOME should still be allowed
 cat > .claudebox.json << EOF
@@ -650,6 +668,48 @@ assert_contains "$output" "no .claudebox.json found" "error when --profile but n
 output=$("$PROCESSED_TEMPLATE" --dry-run 2>&1)
 assert_not_contains "$output" ".claudebox.json" "no spurious config message without --profile"
 
+# Test: Config file with jq missing fails closed instead of skipping settings
+cat > .claudebox.json << 'EOF'
+{"dev":{"network":"none"}}
+EOF
+output=$(PATH="/bin:/sbin" "$PROCESSED_TEMPLATE" --dry-run 2>&1 || true)
+assert_contains "$output" "jq is required to parse .claudebox.json" "missing jq fails closed"
+
+teardown_test_dir
+
+# --- Test: Project Dockerfile opt-in ---
+echo ""
+echo "--- Project Dockerfile Opt-In ---"
+
+setup_test_dir
+git init -q
+
+setup_fake_home
+fake_home="$LAST_FAKE_HOME"
+
+cat > .claudebox.Dockerfile << 'EOF'
+FROM claudebox
+RUN exit 99
+EOF
+
+project_dockerfile_exit=0
+if output=$(HOME="$fake_home" "$PROCESSED_TEMPLATE" --dry-run 2>&1); then
+  project_dockerfile_exit=0
+else
+  project_dockerfile_exit=$?
+fi
+if [ "$project_dockerfile_exit" -ne 0 ]; then
+  pass "project Dockerfile without opt-in fails in dry-run"
+else
+  fail "project Dockerfile without opt-in should fail in dry-run"
+fi
+assert_contains "$output" "Refusing to build repo-controlled .claudebox.Dockerfile" "project Dockerfile dry-run requires opt-in"
+
+output=$(HOME="$fake_home" "$PROCESSED_TEMPLATE" --allow-project-dockerfile --dry-run 2>&1)
+assert_contains "$output" "Per-project image build allowed by --allow-project-dockerfile" "project Dockerfile dry-run reports opt-in"
+assert_contains "$output" "--user 1000:1000" "project Dockerfile dry-run forces UID 1000"
+assert_contains "$output" "--entrypoint /home/claude/entrypoint.sh" "project Dockerfile dry-run forces trusted entrypoint"
+
 teardown_test_dir
 
 # --- Test: Dry-run summary ---
@@ -711,6 +771,25 @@ EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
 # jq should produce an error since .mounts is not iterable as an array
 assert_not_contains "$output" "CLAUDEBOX_EXTRA_MOUNTS=$" "parse error not silently swallowed"
+
+teardown_test_dir
+
+# --- Test: Project trust commands ---
+echo ""
+echo "--- Project Trust Commands ---"
+
+setup_test_dir
+
+setup_fake_home
+fake_home="$LAST_FAKE_HOME"
+
+HOME="$fake_home" "$PROCESSED_TEMPLATE" trust >/dev/null 2>&1
+output=$(HOME="$fake_home" "$PROCESSED_TEMPLATE" trust --list 2>&1)
+assert_contains "$output" "$TEST_DIR" "trusted project appears in trust list"
+
+HOME="$fake_home" "$PROCESSED_TEMPLATE" untrust >/dev/null 2>&1
+output=$(HOME="$fake_home" "$PROCESSED_TEMPLATE" trust --list 2>&1)
+assert_not_contains "$output" "$TEST_DIR" "untrusted project removed from trust list"
 
 teardown_test_dir
 
@@ -822,8 +901,13 @@ cat > "$fake_home/.claude/.credentials.json" << 'EOF'
 EOF
 
 output=$(HOME="$fake_home" PATH="$FAKE_TOOLS_PATH" "$PROCESSED_TEMPLATE" -p "hello" 2>&1 || true)
-assert_contains "$output" "fake docker invoked" "valid host auth allows launch flow to continue"
-assert_docker_invoked "valid host auth reaches docker"
+assert_contains "$output" "Project is not trusted for networked Claude credentials" "valid host auth still requires project trust"
+assert_docker_not_invoked "untrusted project exits before docker"
+
+HOME="$fake_home" "$PROCESSED_TEMPLATE" trust >/dev/null 2>&1
+output=$(HOME="$fake_home" PATH="$FAKE_TOOLS_PATH" "$PROCESSED_TEMPLATE" -p "hello" 2>&1 || true)
+assert_contains "$output" "fake docker invoked" "trusted project with valid host auth allows launch flow to continue"
+assert_docker_invoked "trusted project with valid host auth reaches docker"
 
 teardown_test_dir
 
@@ -840,8 +924,39 @@ cat > "$keychain_credentials_file" << 'EOF'
 EOF
 
 output=$(HOME="$fake_home" PATH="$FAKE_TOOLS_PATH" FAKE_SECURITY_MODE=success FAKE_SECURITY_PAYLOAD_FILE="$keychain_credentials_file" "$PROCESSED_TEMPLATE" -p "hello" 2>&1 || true)
-assert_contains "$output" "fake docker invoked" "valid keychain auth allows launch flow to continue"
-assert_docker_invoked "valid keychain auth reaches docker"
+assert_contains "$output" "Project is not trusted for networked Claude credentials" "valid keychain auth still requires project trust"
+assert_docker_not_invoked "untrusted keychain-auth project exits before docker"
+
+HOME="$fake_home" "$PROCESSED_TEMPLATE" trust >/dev/null 2>&1
+output=$(HOME="$fake_home" PATH="$FAKE_TOOLS_PATH" FAKE_SECURITY_MODE=success FAKE_SECURITY_PAYLOAD_FILE="$keychain_credentials_file" "$PROCESSED_TEMPLATE" -p "hello" 2>&1 || true)
+assert_contains "$output" "fake docker invoked" "trusted project with valid keychain auth allows launch flow to continue"
+assert_docker_invoked "trusted project with valid keychain auth reaches docker"
+
+teardown_test_dir
+
+# --- Test: Network none bypasses project trust gate ---
+echo ""
+echo "--- Network Trust Gate ---"
+
+setup_test_dir
+
+setup_fake_home
+fake_home="$LAST_FAKE_HOME"
+setup_fake_docker
+setup_fake_security
+mkdir -p "$fake_home/.claude"
+
+cat > "$fake_home/.claude/.credentials.json" << 'EOF'
+{"claudeAiOauth":{"accessToken":"host-access","refreshToken":"host-refresh","expiresAt":123}}
+EOF
+
+cat > .claudebox.json << 'EOF'
+{"offline":{"network":"none"}}
+EOF
+
+output=$(HOME="$fake_home" PATH="$FAKE_TOOLS_PATH" "$PROCESSED_TEMPLATE" -p "hello" 2>&1 || true)
+assert_contains "$output" "fake docker invoked" "network none allows untrusted project to reach docker"
+assert_docker_invoked "network none bypasses trust gate"
 
 teardown_test_dir
 
@@ -853,6 +968,7 @@ setup_test_dir
 
 setup_fake_home
 fake_home="$LAST_FAKE_HOME"
+setup_fake_docker
 setup_fake_security
 mkdir -p "$fake_home/.claude" "$fake_home/.claudebox/claude-config"
 
@@ -867,6 +983,10 @@ cat > "$fake_home/.claude.json" << 'EOF'
 }
 EOF
 
+cat > "$fake_home/.claude/.credentials.json" << 'EOF'
+{"claudeAiOauth":{"accessToken":"host-access","refreshToken":"host-refresh","expiresAt":123}}
+EOF
+
 cat > "$fake_home/.claudebox/.claude.json" << 'EOF'
 {
   "recommendedSubscription": "stale",
@@ -877,7 +997,8 @@ cat > "$fake_home/.claudebox/.claude.json" << 'EOF'
 }
 EOF
 
-HOME="$fake_home" PATH="$FAKE_TOOLS_PATH" "$PROCESSED_TEMPLATE" --dry-run >/dev/null 2>&1
+HOME="$fake_home" "$PROCESSED_TEMPLATE" trust >/dev/null 2>&1
+HOME="$fake_home" PATH="$FAKE_TOOLS_PATH" "$PROCESSED_TEMPLATE" -p "hello" >/dev/null 2>&1 || true
 
 synced_name=$(jq -r '.oauthAccount.displayName' "$fake_home/.claudebox/.claude.json")
 synced_subscription=$(jq -r '.recommendedSubscription' "$fake_home/.claudebox/.claude.json")
@@ -899,6 +1020,7 @@ setup_test_dir
 
 setup_fake_home
 fake_home="$LAST_FAKE_HOME"
+setup_fake_docker
 setup_fake_security
 mkdir -p "$fake_home/.claude" "$fake_home/.claudebox/claude-config"
 
@@ -914,7 +1036,8 @@ cat > "$fake_home/.claudebox/claude-config/.credentials.json" << 'EOF'
 {"claudeAiOauth":{"accessToken":"stale-access","refreshToken":"stale-refresh","expiresAt":1}}
 EOF
 
-HOME="$fake_home" PATH="$FAKE_TOOLS_PATH" "$PROCESSED_TEMPLATE" --dry-run >/dev/null 2>&1
+HOME="$fake_home" "$PROCESSED_TEMPLATE" trust >/dev/null 2>&1
+HOME="$fake_home" PATH="$FAKE_TOOLS_PATH" "$PROCESSED_TEMPLATE" -p "hello" >/dev/null 2>&1 || true
 
 synced_refresh_token=$(jq -r '.claudeAiOauth.refreshToken' "$fake_home/.claudebox/claude-config/.credentials.json")
 assert_equals "$synced_refresh_token" "host-refresh" "host credentials file mirrored into sandbox"
@@ -929,6 +1052,7 @@ setup_test_dir
 
 setup_fake_home
 fake_home="$LAST_FAKE_HOME"
+setup_fake_docker
 setup_fake_security
 keychain_credentials_file="$TEST_DIR/keychain-credentials.json"
 mkdir -p "$fake_home/.claudebox/claude-config"
@@ -941,23 +1065,28 @@ cat > "$keychain_credentials_file" << 'EOF'
 {"claudeAiOauth":{"accessToken":"keychain-access","refreshToken":"keychain-refresh","expiresAt":123}}
 EOF
 
-HOME="$fake_home" PATH="$FAKE_TOOLS_PATH" FAKE_SECURITY_MODE=success FAKE_SECURITY_PAYLOAD_FILE="$keychain_credentials_file" "$PROCESSED_TEMPLATE" --dry-run >/dev/null 2>&1
+HOME="$fake_home" "$PROCESSED_TEMPLATE" trust >/dev/null 2>&1
+HOME="$fake_home" PATH="$FAKE_TOOLS_PATH" FAKE_SECURITY_MODE=success FAKE_SECURITY_PAYLOAD_FILE="$keychain_credentials_file" "$PROCESSED_TEMPLATE" -p "hello" >/dev/null 2>&1 || true
 
 synced_refresh_token=$(jq -r '.claudeAiOauth.refreshToken' "$fake_home/.claudebox/claude-config/.credentials.json")
 assert_equals "$synced_refresh_token" "keychain-refresh" "host keychain credentials mirrored into sandbox when file is absent"
 
 teardown_test_dir
 
-# --- Test: Stale sandbox credentials removed ---
+# --- Test: Dry-run does not sync credentials ---
 echo ""
-echo "--- Stale Sandbox Credentials ---"
+echo "--- Dry-run Credential Safety ---"
 
 setup_test_dir
 
 setup_fake_home
 fake_home="$LAST_FAKE_HOME"
 setup_fake_security
-mkdir -p "$fake_home/.claudebox/claude-config"
+mkdir -p "$fake_home/.claude" "$fake_home/.claudebox/claude-config"
+
+cat > "$fake_home/.claude/.credentials.json" << 'EOF'
+{"claudeAiOauth":{"accessToken":"host-access","refreshToken":"host-refresh","expiresAt":123}}
+EOF
 
 cat > "$fake_home/.claudebox/claude-config/.credentials.json" << 'EOF'
 {"claudeAiOauth":{"accessToken":"stale-access","refreshToken":"stale-refresh","expiresAt":1}}
@@ -965,11 +1094,8 @@ EOF
 
 HOME="$fake_home" PATH="$FAKE_TOOLS_PATH" "$PROCESSED_TEMPLATE" --dry-run >/dev/null 2>&1
 
-if [ ! -e "$fake_home/.claudebox/claude-config/.credentials.json" ]; then
-  pass "stale sandbox credentials removed when host file is absent"
-else
-  fail "stale sandbox credentials removed when host file is absent"
-fi
+synced_refresh_token=$(jq -r '.claudeAiOauth.refreshToken' "$fake_home/.claudebox/claude-config/.credentials.json")
+assert_equals "$synced_refresh_token" "stale-refresh" "dry-run does not mirror host credentials"
 
 teardown_test_dir
 

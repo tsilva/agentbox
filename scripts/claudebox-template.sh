@@ -89,6 +89,8 @@ HOST_CLAUDE_STATE_FILE="$HOME/.claude.json"
 HOST_CREDENTIALS_FILE="$HOST_CLAUDE_DIR/.credentials.json"
 HOST_KEYCHAIN_SERVICE="Claude Code-credentials"
 CLAUDEBOX_STATE_DIR="$HOME/.claudebox"
+TRUSTED_PROJECTS_DIR="$CLAUDEBOX_STATE_DIR/trusted-projects"
+TRUSTED_ENTRYPOINT_FILE="$CLAUDEBOX_STATE_DIR/entrypoint.sh"
 SANDBOX_CLAUDE_DIR="$CLAUDEBOX_STATE_DIR/claude-config"
 SANDBOX_DOTCONFIG_DIR="$CLAUDEBOX_STATE_DIR/claude-dotconfig"
 SANDBOX_PLUGINS_DIR="$CLAUDEBOX_STATE_DIR/plugins"
@@ -265,6 +267,10 @@ sync_host_plugins() {
 
 prepare_sandbox_state() {
   sync_host_auth_state
+  prepare_sandbox_non_auth_state
+}
+
+prepare_sandbox_non_auth_state() {
   ensure_runtime_claude_md_link
   sync_host_plugins
   # Claude Code expects valid JSON in the mirrored state file.
@@ -286,6 +292,7 @@ dry_run=false          # When true, print the docker command instead of running 
 audit_log=false        # When true, keep named container and dump logs on exit
 readonly_mode=false    # When true, mount all host paths as read-only
 print_mode=false       # When true, Claude is in -p/--print mode (no TTY needed)
+allow_project_dockerfile=false  # When true, permit trusted per-project image builds
 
 # Extract our flags (--profile, --dry-run), pass everything else to Claude
 for arg in "$@"; do
@@ -302,6 +309,9 @@ for arg in "$@"; do
   elif [ "$arg" = "--readonly" ]; then
     # Enable readonly mode: all host mounts become read-only
     readonly_mode=true
+  elif [ "$arg" = "--allow-project-dockerfile" ]; then
+    # Explicitly allow a repo-controlled Dockerfile to run build steps
+    allow_project_dockerfile=true
   else
     # Track the first non-flag arg to detect the "shell" command
     [ -z "$first_cmd" ] && first_cmd="$arg"
@@ -358,13 +368,6 @@ if [ "$first_cmd" = "update" ]; then
   rm -f "$HOME/.claudebox/.latest-version"
   exec "$repo_path/install.sh" --update
 fi
-
-# Dry-run inspects launch state without starting Claude, so skip auth gating there.
-if [ "$dry_run" != true ]; then
-  require_host_auth
-fi
-
-prepare_sandbox_state
 
 # --- Version staleness check ---
 # Warn the user if a newer Claude Code version is available upstream.
@@ -427,6 +430,10 @@ BLOCKED_PATHS=(
   "$HOME/.ssh" "$HOME/.gnupg" "$HOME/.aws" "$HOME/.azure" "$HOME/.gcloud"
   "$HOME/.config/gcloud" "$HOME/.kube" "$HOME/.docker" "$HOME/.npmrc"
   "$HOME/.netrc" "$HOME/.password-store" "$HOME/.local/share/keyrings"
+  "$HOME/.config/gh" "$HOME/.git-credentials" "$HOME/.pypirc" "$HOME/.npm"
+  "$HOME/.cargo/credentials" "$HOME/.cargo/credentials.toml" "$HOME/.gem/credentials"
+  "$HOME/.m2/settings.xml" "$HOME/.gradle/gradle.properties"
+  "$HOME/Library" "$HOME/.1password" "$HOME/.bitwarden" "$HOME/.config/Bitwarden"
   # Claude-specific (already managed)
   "$HOME/.claude" "$HOME/.claudebox"
 )
@@ -513,6 +520,18 @@ is_same_or_descendant_path() {
   [[ "$candidate" == "$parent"/* ]]
 }
 
+is_hidden_home_path() {
+  local candidate="$1"
+  local rel first_component
+
+  [ "$candidate" = "$HOME" ] && return 1
+  [[ "$candidate" == "$HOME"/* ]] || return 1
+
+  rel="${candidate#"$HOME"/}"
+  first_component="${rel%%/*}"
+  [[ "$first_component" == .* ]]
+}
+
 is_path_blocked() {
   local normalized="$1"
   for blocked in "${BLOCKED_PATH_ALIASES[@]}"; do
@@ -521,6 +540,9 @@ is_path_blocked() {
       return 0
     fi
   done
+  if is_hidden_home_path "$normalized"; then
+    return 0
+  fi
   return 1
 }
 
@@ -576,12 +598,88 @@ if ! validate_strict_host_path "Working directory" "$workdir" \
   exit 1
 fi
 
+trusted_project_key() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    printf '%s' "$workdir" | sha256sum | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    printf '%s' "$workdir" | shasum -a 256 | awk '{print $1}'
+  else
+    printf '%s' "$workdir" | cksum | awk '{print $1 "-" $2}'
+  fi
+}
+
+trusted_project_record() {
+  printf '%s/%s\n' "$TRUSTED_PROJECTS_DIR" "$(trusted_project_key)"
+}
+
+is_project_trusted() {
+  local record
+  record="$(trusted_project_record)"
+  [ -f "$record" ] && [ "$(<"$record")" = "$workdir" ]
+}
+
+trust_project() {
+  local record
+  mkdir -p "$TRUSTED_PROJECTS_DIR"
+  record="$(trusted_project_record)"
+  printf '%s' "$workdir" > "$record"
+  chmod 600 "$record" 2>/dev/null || true
+  success "Trusted project: $workdir"
+}
+
+untrust_project() {
+  local record
+  record="$(trusted_project_record)"
+  if [ -f "$record" ]; then
+    rm -f "$record"
+    success "Untrusted project: $workdir"
+  else
+    info "Project was not trusted: $workdir"
+  fi
+}
+
+list_trusted_projects() {
+  local record records
+
+  if [ ! -d "$TRUSTED_PROJECTS_DIR" ]; then
+    info "No trusted projects"
+    return 0
+  fi
+
+  records=""
+  for record in "$TRUSTED_PROJECTS_DIR"/*; do
+    [ -f "$record" ] || continue
+    records+=$(cat "$record")
+    records+=$'\n'
+  done
+
+  if [ -n "$records" ]; then
+    printf '%s' "$records" | LC_ALL=C sort
+  else
+    info "No trusted projects"
+  fi
+
+}
+
+if [ "$first_cmd" = "trust" ]; then
+  if [ "${cmd_args[1]:-}" = "--list" ]; then
+    list_trusted_projects
+  else
+    trust_project
+  fi
+  exit 0
+elif [ "$first_cmd" = "untrust" ]; then
+  untrust_project
+  exit 0
+fi
+
 # --- Per-project configuration (.claudebox.json) ---
 if [ -f ".claudebox.json" ]; then
   # jq is required to parse the JSON config
   if ! command -v jq &>/dev/null; then
-    warn "jq not installed, skipping .claudebox.json config"
-    note "Install with: brew install jq"
+    error_block "jq is required to parse .claudebox.json." \
+      "Install jq and retry so profile security settings are not skipped."
+    exit 1
   else
     # Validate the config file is a JSON object (not array, string, etc.)
     jq_error=""
@@ -749,6 +847,20 @@ network_args=()
 [[ ! "${network_mode:-bridge}" =~ ^(bridge|none)$ ]] && { error "Unsupported network mode '$network_mode' (allowed: bridge, none)"; exit 1; }
 [[ "${network_mode:-}" == "none" ]] && network_args=(--network none)
 
+# --- Auth and project trust gate ---
+# Host credentials are only mirrored after trust checks have passed.
+if [ "$dry_run" != true ]; then
+  require_host_auth
+  if [ "${network_mode:-bridge}" != "none" ] && ! is_project_trusted; then
+    error_block "Project is not trusted for networked Claude credentials: $workdir" \
+      "Run 'claudebox trust' from this project directory after reviewing it, or set network: \"none\" in .claudebox.json."
+    exit 1
+  fi
+  prepare_sandbox_state
+else
+  prepare_sandbox_non_auth_state
+fi
+
 # --- Resource limit validation ---
 if [ -n "${profile_cpu:-}" ] && ! [[ "$profile_cpu" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
   error "Invalid cpu format '$profile_cpu' (expected: integer or decimal, e.g. '4' or '1.5')"; exit 1
@@ -781,10 +893,28 @@ resource_args+=(--pids-limit "${profile_pids_limit:-$DEFAULT_PIDS_LIMIT}")
 # Docker build steps.
 run_image="$IMAGE_NAME"
 project_image_note=""
+project_runtime_args=()
 if [ -f ".claudebox.Dockerfile" ]; then
+  if [ "$allow_project_dockerfile" != true ]; then
+    error_block "Refusing to build repo-controlled .claudebox.Dockerfile without explicit opt-in." \
+      "Review the Dockerfile, then retry with --allow-project-dockerfile if you trust this project."
+    exit 1
+  fi
+  if [ ! -f "$TRUSTED_ENTRYPOINT_FILE" ]; then
+    error_block "Trusted entrypoint not found at $TRUSTED_ENTRYPOINT_FILE" \
+      "Reinstall claudebox so project images can use the host-controlled entrypoint."
+    exit 1
+  fi
   run_image="${IMAGE_NAME}-project"
+  project_runtime_args+=(
+    --user "1000:1000"
+    -v "$TRUSTED_ENTRYPOINT_FILE:/home/claude/entrypoint.sh:ro"
+  )
+  if [ "$first_cmd" != "shell" ]; then
+    entrypoint_args=(--entrypoint /home/claude/entrypoint.sh)
+  fi
   if [ "$dry_run" = true ]; then
-    project_image_note="Per-project image build skipped for --dry-run; normal runs build and use $run_image."
+    project_image_note="Per-project image build allowed by --allow-project-dockerfile; dry-run skips the build and uses $run_image with the trusted entrypoint."
   fi
 fi
 
@@ -850,6 +980,8 @@ docker_cmd=(
   --security-opt=no-new-privileges
   # Apply seccomp profile for syscall filtering
   --security-opt "seccomp=$SECCOMP_PROFILE"
+  # Project images are forced back to the claudebox runtime contract.
+  ${project_runtime_args[@]+"${project_runtime_args[@]}"}
   # Mount rootfs as read-only; writable dirs use tmpfs below
   --read-only
   # Tmpfs mounts for directories that need write access (size-limited)

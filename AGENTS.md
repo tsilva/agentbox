@@ -72,8 +72,16 @@ cat file.txt | claudebox -p "summarize this"
 # Drop into a bash shell to inspect the sandbox environment
 claudebox shell
 
+# Trust the current project for networked Claude credentials
+claudebox trust
+claudebox trust --list
+claudebox untrust
+
 # Mount all host paths as read-only (workspace, config, extra mounts)
 claudebox --readonly
+
+# Allow a reviewed repo-controlled project Dockerfile for this launch
+claudebox --allow-project-dockerfile
 ```
 
 ## Per-Project Configuration
@@ -115,9 +123,10 @@ Projects can define named profiles via `.claudebox.json` in the project root:
 
 **Requirements:**
 - `jq` must be installed for config parsing (`brew install jq`)
-- If `jq` is missing or config is invalid, warnings are shown and extra mounts are skipped
+- If `.claudebox.json` exists and `jq` is missing, claudebox exits instead of skipping profile security settings
+- If config is invalid, claudebox exits with an error
 
-**Path behavior:** The working directory is mounted at its canonical path (e.g., `/Users/foo/project` inside and outside). Any symlink hop in the working directory or an extra mount source is rejected, so use canonical paths directly.
+**Path behavior:** The working directory is mounted at its canonical path (e.g., `/Users/foo/project` inside and outside). Any symlink hop in the working directory or an extra mount source is rejected, so use canonical paths directly. Sensitive host paths, hidden direct children under `$HOME`, and parent paths that would expose them are blocked.
 
 **Profile selection:**
 - With `--profile <name>` or `-P <name>` (uppercase): Use specified profile

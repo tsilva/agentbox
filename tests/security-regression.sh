@@ -36,6 +36,7 @@ setup_fake_home() {
   FAKE_HOMES+=("$LAST_FAKE_HOME")
   mkdir -p "$LAST_FAKE_HOME/.claudebox"
   cp "$REPO_ROOT/scripts/seccomp.json" "$LAST_FAKE_HOME/.claudebox/seccomp.json"
+  cp "$REPO_ROOT/entrypoint.sh" "$LAST_FAKE_HOME/.claudebox/entrypoint.sh"
 }
 
 # Cleanup on exit
@@ -53,6 +54,7 @@ trap cleanup EXIT
 # Ensure the seccomp profile is installed for all tests
 mkdir -p ~/.claudebox
 cp "$REPO_ROOT/scripts/seccomp.json" ~/.claudebox/seccomp.json
+cp "$REPO_ROOT/entrypoint.sh" ~/.claudebox/entrypoint.sh
 
 # --- Test: Critical security flags are present ---
 echo "--- Critical Security Flags ---"
@@ -255,10 +257,18 @@ fi
 setup_fake_home
 
 mkdir -p "$LAST_FAKE_HOME/.claude/plugins/cache/example-market/example-plugin"
+mkdir -p "$LAST_FAKE_HOME/.claude"
 cat > "$LAST_FAKE_HOME/.claude.json" << 'EOF'
 {"persisted":false}
 EOF
+cat > "$LAST_FAKE_HOME/.claude/.credentials.json" << 'EOF'
+{"claudeAiOauth":{"accessToken":"host-access","refreshToken":"host-refresh","expiresAt":123}}
+EOF
 printf '%s\n' 'host-plugin' > "$LAST_FAKE_HOME/.claude/plugins/cache/example-market/example-plugin/plugin.js"
+
+cat > .claudebox.json << 'EOF'
+{"safe":{"network":"none"}}
+EOF
 
 cat > .claudebox.Dockerfile << 'EOF'
 FROM claudebox
@@ -284,7 +294,7 @@ USER claude
 EOF
 
 readonly_exit=0
-if output=$(HOME="$LAST_FAKE_HOME" DOCKER_HOST="$REAL_DOCKER_HOST" "$PROCESSED_TEMPLATE" --readonly -p "self-check" 2>&1); then
+if output=$(HOME="$LAST_FAKE_HOME" DOCKER_HOST="$REAL_DOCKER_HOST" "$PROCESSED_TEMPLATE" --allow-project-dockerfile --readonly -p "self-check" 2>&1); then
   readonly_exit=0
 else
   readonly_exit=$?
@@ -296,9 +306,9 @@ assert_equals "$(tr -d '\n' < "$LAST_FAKE_HOME/.claudebox/plugins/cache/example-
 
 teardown_test_dir
 
-# --- Test: Dry-run skips per-project image builds ---
+# --- Test: Project Dockerfile opt-in ---
 echo ""
-echo "--- Dry-Run Safety ---"
+echo "--- Project Dockerfile Opt-In ---"
 
 setup_test_dir
 git init -q
@@ -315,12 +325,85 @@ if output=$("$PROCESSED_TEMPLATE" --dry-run 2>&1); then
 else
   dry_run_exit=$?
 fi
-assert_equals "$dry_run_exit" "0" "dry-run with project Dockerfile exits successfully"
-assert_contains "$output" "Per-project image build skipped for --dry-run" "dry-run reports skipped project build"
+if [ "$dry_run_exit" -ne 0 ]; then
+  pass "project Dockerfile without opt-in fails"
+else
+  fail "project Dockerfile without opt-in should fail"
+fi
+assert_contains "$output" "Refusing to build repo-controlled .claudebox.Dockerfile" "project Dockerfile requires opt-in"
 assert_not_contains "$output" "Building per-project image" "dry-run does not build project image"
-assert_contains "$output" "claudebox-project" "dry-run still references project image"
+
+dry_run_exit=0
+if output=$("$PROCESSED_TEMPLATE" --allow-project-dockerfile --dry-run 2>&1); then
+  dry_run_exit=0
+else
+  dry_run_exit=$?
+fi
+assert_equals "$dry_run_exit" "0" "dry-run with project Dockerfile opt-in exits successfully"
+assert_contains "$output" "Per-project image build allowed by --allow-project-dockerfile" "dry-run reports explicit project image opt-in"
+assert_contains "$output" "--user 1000:1000" "project image runs as UID 1000"
+assert_contains "$output" "--entrypoint /home/claude/entrypoint.sh" "project image uses trusted entrypoint"
+assert_contains "$output" "claudebox-project" "dry-run references project image after opt-in"
 
 teardown_test_dir
+
+# --- Test: Project image runtime contract ---
+echo ""
+echo "--- Project Image Runtime Contract ---"
+
+require_docker
+require_image
+
+setup_test_dir
+setup_fake_home
+
+mkdir -p "$LAST_FAKE_HOME/.claude"
+cat > "$LAST_FAKE_HOME/.claude/.credentials.json" << 'EOF'
+{"claudeAiOauth":{"accessToken":"host-access","refreshToken":"host-refresh","expiresAt":123}}
+EOF
+cat > .claudebox.json << 'EOF'
+{"offline":{"network":"none"}}
+EOF
+cat > .claudebox.Dockerfile << 'EOF'
+FROM claudebox
+USER root
+RUN cat <<'SCRIPT' > /opt/claude-code/claude
+#!/bin/bash
+set -euo pipefail
+printf 'trusted entrypoint reached\n'
+printf 'uid=%s\n' "$(id -u)"
+SCRIPT
+RUN chmod 755 /opt/claude-code/claude && chown claude:claude /opt/claude-code/claude
+RUN cat <<'SCRIPT' > /evil-entrypoint
+#!/bin/bash
+echo "MALICIOUS_ENTRYPOINT_RAN"
+SCRIPT
+RUN chmod 755 /evil-entrypoint
+USER root
+ENTRYPOINT ["/evil-entrypoint"]
+EOF
+
+runtime_exit=0
+if output=$(HOME="$LAST_FAKE_HOME" DOCKER_HOST="$REAL_DOCKER_HOST" "$PROCESSED_TEMPLATE" --allow-project-dockerfile -p "runtime-contract" 2>&1); then
+  runtime_exit=0
+else
+  runtime_exit=$?
+fi
+assert_equals "$runtime_exit" "0" "project runtime contract exits successfully"
+assert_contains "$output" "trusted entrypoint reached" "trusted entrypoint overrides project entrypoint"
+assert_contains "$output" "uid=1000" "project image forced to UID 1000"
+assert_not_contains "$output" "MALICIOUS_ENTRYPOINT_RAN" "project entrypoint is not executed"
+
+teardown_test_dir
+
+# --- Test: io_uring is blocked by seccomp ---
+echo ""
+echo "--- io_uring Seccomp ---"
+
+io_uring_result=$(docker run --rm \
+  --security-opt "seccomp=$REPO_ROOT/scripts/seccomp.json" \
+  --entrypoint python3 claudebox -c 'import ctypes, os; libc=ctypes.CDLL(None, use_errno=True); rc=libc.syscall(425, 1, 0); print("errno=%s" % ctypes.get_errno() if rc == -1 else "allowed")' 2>&1 || true)
+assert_contains "$io_uring_result" "errno=1" "io_uring_setup blocked with EPERM"
 
 # --- Summary ---
 summary

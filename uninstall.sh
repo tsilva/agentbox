@@ -141,6 +141,13 @@ do_uninstall() {
     success "Removed seccomp profile"
   fi
 
+  # Remove trusted entrypoint
+  local entrypoint_path="$HOME/.claudebox/entrypoint.sh"
+  if [ -f "$entrypoint_path" ]; then
+    rm -f "$entrypoint_path"
+    success "Removed trusted entrypoint"
+  fi
+
   # Remove style library
   local style_path="$HOME/.claudebox/bin/style.sh"
   if [ -f "$style_path" ]; then
