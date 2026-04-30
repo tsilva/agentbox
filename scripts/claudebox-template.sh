@@ -911,7 +911,10 @@ if [ -f ".claudebox.Dockerfile" ]; then
     -v "$TRUSTED_ENTRYPOINT_FILE:/home/claude/entrypoint.sh:ro"
   )
   if [ "$first_cmd" != "shell" ]; then
-    entrypoint_args=(--entrypoint /home/claude/entrypoint.sh)
+    # Invoke the bind-mounted trusted entrypoint through bash so it still works
+    # when the host temp mount used by tests or CI does not allow direct exec.
+    entrypoint_args=(--entrypoint /bin/bash)
+    cmd_args=(/home/claude/entrypoint.sh ${cmd_args[@]+"${cmd_args[@]}"})
   fi
   if [ "$dry_run" = true ]; then
     project_image_note="Per-project image build allowed by --allow-project-dockerfile; dry-run skips the build and uses $run_image with the trusted entrypoint."

@@ -708,7 +708,8 @@ assert_contains "$output" "Refusing to build repo-controlled .claudebox.Dockerfi
 output=$(HOME="$fake_home" "$PROCESSED_TEMPLATE" --allow-project-dockerfile --dry-run 2>&1)
 assert_contains "$output" "Per-project image build allowed by --allow-project-dockerfile" "project Dockerfile dry-run reports opt-in"
 assert_contains "$output" "--user 1000:1000" "project Dockerfile dry-run forces UID 1000"
-assert_contains "$output" "--entrypoint /home/claude/entrypoint.sh" "project Dockerfile dry-run forces trusted entrypoint"
+assert_contains "$output" "--entrypoint /bin/bash" "project Dockerfile dry-run forces bash entrypoint"
+assert_contains "$output" "/home/claude/entrypoint.sh" "project Dockerfile dry-run runs trusted entrypoint"
 
 teardown_test_dir
 

@@ -37,6 +37,7 @@ setup_fake_home() {
   mkdir -p "$LAST_FAKE_HOME/.claudebox"
   cp "$REPO_ROOT/scripts/seccomp.json" "$LAST_FAKE_HOME/.claudebox/seccomp.json"
   cp "$REPO_ROOT/entrypoint.sh" "$LAST_FAKE_HOME/.claudebox/entrypoint.sh"
+  chmod +x "$LAST_FAKE_HOME/.claudebox/entrypoint.sh"
 }
 
 # Cleanup on exit
@@ -55,6 +56,7 @@ trap cleanup EXIT
 mkdir -p ~/.claudebox
 cp "$REPO_ROOT/scripts/seccomp.json" ~/.claudebox/seccomp.json
 cp "$REPO_ROOT/entrypoint.sh" ~/.claudebox/entrypoint.sh
+chmod +x ~/.claudebox/entrypoint.sh
 
 # --- Test: Critical security flags are present ---
 echo "--- Critical Security Flags ---"
@@ -342,7 +344,8 @@ fi
 assert_equals "$dry_run_exit" "0" "dry-run with project Dockerfile opt-in exits successfully"
 assert_contains "$output" "Per-project image build allowed by --allow-project-dockerfile" "dry-run reports explicit project image opt-in"
 assert_contains "$output" "--user 1000:1000" "project image runs as UID 1000"
-assert_contains "$output" "--entrypoint /home/claude/entrypoint.sh" "project image uses trusted entrypoint"
+assert_contains "$output" "--entrypoint /bin/bash" "project image uses bash entrypoint"
+assert_contains "$output" "/home/claude/entrypoint.sh" "project image runs trusted entrypoint"
 assert_contains "$output" "claudebox-project" "dry-run references project image after opt-in"
 
 teardown_test_dir
