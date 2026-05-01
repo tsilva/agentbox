@@ -672,7 +672,12 @@ assert_not_contains "$output" ".claudebox.json" "no spurious config message with
 cat > .claudebox.json << 'EOF'
 {"dev":{"network":"none"}}
 EOF
-output=$(PATH="/bin:/sbin" "$PROCESSED_TEMPLATE" --dry-run 2>&1 || true)
+no_jq_bin="$TEST_DIR/no-jq-bin"
+mkdir -p "$no_jq_bin"
+for tool in basename dirname mkdir; do
+  ln -s "$(command -v "$tool")" "$no_jq_bin/$tool"
+done
+output=$(PATH="$no_jq_bin" "$PROCESSED_TEMPLATE" --dry-run 2>&1 || true)
 assert_contains "$output" "jq is required to parse .claudebox.json" "missing jq fails closed"
 
 teardown_test_dir
