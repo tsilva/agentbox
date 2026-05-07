@@ -8,7 +8,7 @@
 #
 
 CLAUDE_CODE_LATEST_URL="https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/latest"
-CLAUDEBOX_STATE_DIR="${CLAUDEBOX_STATE_DIR:-$HOME/.claudebox}"
+AGENTBOX_STATE_DIR="${AGENTBOX_STATE_DIR:-$HOME/.agentbox}"
 
 check_runtime() {
   if ! command -v docker &>/dev/null; then
@@ -40,7 +40,7 @@ build_cache_bust_key() {
 }
 
 clear_latest_version_cache() {
-  rm -f "$CLAUDEBOX_STATE_DIR/.latest-version"
+  rm -f "$AGENTBOX_STATE_DIR/.latest-version"
 }
 
 cleanup_replaced_image() {
@@ -62,7 +62,7 @@ persist_installed_version() {
 
   installed_version=$(docker run --rm --entrypoint cat "$image_name" /opt/claude-code/VERSION 2>/dev/null) || true
   if [ -n "$installed_version" ]; then
-    mkdir -p "$CLAUDEBOX_STATE_DIR"
-    printf '%s' "$installed_version" > "$CLAUDEBOX_STATE_DIR/version"
+    mkdir -p "$AGENTBOX_STATE_DIR"
+    printf '%s' "$installed_version" > "$AGENTBOX_STATE_DIR/version"
   fi
 }

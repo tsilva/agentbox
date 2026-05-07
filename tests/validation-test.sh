@@ -20,33 +20,33 @@ echo ""
 require_jq
 
 # Use the template directly with --dry-run
-TEMPLATE="$REPO_ROOT/scripts/claudebox-template.sh"
+TEMPLATE="$REPO_ROOT/scripts/agentbox-template.sh"
 
 # Create a processed version of the template
 PROCESSED_TEMPLATE=$(mktemp)
-sed 's|PLACEHOLDER_IMAGE_NAME|claudebox|g' \
+sed 's|PLACEHOLDER_IMAGE_NAME|agentbox|g' \
     "$TEMPLATE" > "$PROCESSED_TEMPLATE"
 chmod +x "$PROCESSED_TEMPLATE"
 
 # Ensure the seccomp profile exists for dry-run validation.
-mkdir -p ~/.claudebox
-cp "$REPO_ROOT/scripts/seccomp.json" ~/.claudebox/seccomp.json
+mkdir -p ~/.agentbox
+cp "$REPO_ROOT/scripts/seccomp.json" ~/.agentbox/seccomp.json
 
 FAKE_HOMES=()
 LAST_FAKE_HOME=""
 
 setup_fake_home() {
-  LAST_FAKE_HOME=$(mktemp -d /tmp/claudebox-fake-home.XXXXXX 2>/dev/null || mktemp -d)
+  LAST_FAKE_HOME=$(mktemp -d /tmp/agentbox-fake-home.XXXXXX 2>/dev/null || mktemp -d)
   LAST_FAKE_HOME=$(canonicalize_path "$LAST_FAKE_HOME")
   FAKE_HOMES+=("$LAST_FAKE_HOME")
-  mkdir -p "$LAST_FAKE_HOME/.claudebox"
-  cp "$REPO_ROOT/scripts/seccomp.json" "$LAST_FAKE_HOME/.claudebox/seccomp.json"
-  cp "$REPO_ROOT/entrypoint.sh" "$LAST_FAKE_HOME/.claudebox/entrypoint.sh"
+  mkdir -p "$LAST_FAKE_HOME/.agentbox"
+  cp "$REPO_ROOT/scripts/seccomp.json" "$LAST_FAKE_HOME/.agentbox/seccomp.json"
+  cp "$REPO_ROOT/entrypoint.sh" "$LAST_FAKE_HOME/.agentbox/entrypoint.sh"
 }
 
 make_canonical_temp_dir() {
   local temp_dir
-  temp_dir=$(mktemp -d /tmp/claudebox-temp.XXXXXX 2>/dev/null || mktemp -d)
+  temp_dir=$(mktemp -d /tmp/agentbox-temp.XXXXXX 2>/dev/null || mktemp -d)
   canonicalize_path "$temp_dir"
 }
 
@@ -170,27 +170,27 @@ setup_test_dir
 git init -q
 
 # Test: Array at root level should be rejected
-echo '["not","an","object"]' > .claudebox.json
+echo '["not","an","object"]' > .agentbox.json
 output=$("$PROCESSED_TEMPLATE" --dry-run 2>&1 || true)
-assert_contains "$output" "Invalid .claudebox.json" "JSON array rejected"
+assert_contains "$output" "Invalid .agentbox.json" "JSON array rejected"
 
 # Test: String at root level should be rejected
-echo '"just a string"' > .claudebox.json
+echo '"just a string"' > .agentbox.json
 output=$("$PROCESSED_TEMPLATE" --dry-run 2>&1 || true)
-assert_contains "$output" "Invalid .claudebox.json" "JSON string rejected"
+assert_contains "$output" "Invalid .agentbox.json" "JSON string rejected"
 
 # Test: Number at root level should be rejected
-echo '42' > .claudebox.json
+echo '42' > .agentbox.json
 output=$("$PROCESSED_TEMPLATE" --dry-run 2>&1 || true)
-assert_contains "$output" "Invalid .claudebox.json" "JSON number rejected"
+assert_contains "$output" "Invalid .agentbox.json" "JSON number rejected"
 
 # Test: Invalid JSON should be rejected
-echo '{invalid json}' > .claudebox.json
+echo '{invalid json}' > .agentbox.json
 output=$("$PROCESSED_TEMPLATE" --dry-run 2>&1 || true)
-assert_contains "$output" "Invalid .claudebox.json" "malformed JSON rejected"
+assert_contains "$output" "Invalid .agentbox.json" "malformed JSON rejected"
 
 # Test: Empty object is valid (no profiles)
-echo '{}' > .claudebox.json
+echo '{}' > .agentbox.json
 output=$("$PROCESSED_TEMPLATE" --dry-run 2>&1)
 # Should not contain any error about invalid JSON
 assert_not_contains "$output" "Invalid" "empty object accepted"
@@ -207,14 +207,14 @@ path_test_root=$(make_canonical_temp_dir)
 
 # Test: Control characters in path should be rejected
 # Using printf to actually include a tab character
-printf '{"dev":{"mounts":[{"path":"%s"}]}}' "${path_test_root}/test"$'\t'"path" > .claudebox.json
+printf '{"dev":{"mounts":[{"path":"%s"}]}}' "${path_test_root}/test"$'\t'"path" > .agentbox.json
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
 # Raw control characters make the JSON invalid before mount validation runs.
-assert_contains "$output" "Invalid .claudebox.json" "control chars in path rejected"
+assert_contains "$output" "Invalid .agentbox.json" "control chars in path rejected"
 
 # Test: Multiple colons in path should be rejected (Docker mount syntax ambiguity)
 colon_path="${path_test_root}/a:b:c"
-cat > .claudebox.json << EOF
+cat > .agentbox.json << EOF
 {"dev":{"mounts":[{"path":"$colon_path"}]}}
 EOF
 # First create the path so it passes the existence check
@@ -224,14 +224,14 @@ assert_contains "$output" "containing ':'" "colon in path warned"
 rmdir "$colon_path" 2>/dev/null || true
 
 # Test: Path traversal should be rejected
-cat > .claudebox.json << EOF
+cat > .agentbox.json << EOF
 {"dev":{"mounts":[{"path":"$path_test_root/test/../../../etc"}]}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
 assert_contains "$output" "path traversal" "path traversal rejected"
 
 # Test: Non-existent path should warn
-cat > .claudebox.json << 'EOF'
+cat > .agentbox.json << 'EOF'
 {"dev":{"mounts":[{"path":"/nonexistent/path/that/does/not/exist"}]}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
@@ -249,21 +249,21 @@ setup_test_dir
 git init -q
 
 # Test: Port above 65535 should be rejected
-cat > .claudebox.json << 'EOF'
+cat > .agentbox.json << 'EOF'
 {"dev":{"ports":[{"host":65536,"container":80}]}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
 assert_contains "$output" "out of range" "port > 65535 rejected"
 
 # Test: Port 0 should be rejected
-cat > .claudebox.json << 'EOF'
+cat > .agentbox.json << 'EOF'
 {"dev":{"ports":[{"host":0,"container":80}]}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
 assert_contains "$output" "out of range" "port 0 rejected"
 
 # Test: Negative port should be rejected (jq will output negative number)
-cat > .claudebox.json << 'EOF'
+cat > .agentbox.json << 'EOF'
 {"dev":{"ports":[{"host":-1,"container":80}]}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
@@ -271,14 +271,14 @@ output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
 assert_contains "$output" "Invalid port" "negative port rejected"
 
 # Test: Non-numeric port should be rejected
-cat > .claudebox.json << 'EOF'
+cat > .agentbox.json << 'EOF'
 {"dev":{"ports":[{"host":"abc","container":80}]}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
 assert_contains "$output" "Invalid port" "non-numeric port rejected"
 
 # Test: Valid ports should work
-cat > .claudebox.json << 'EOF'
+cat > .agentbox.json << 'EOF'
 {"dev":{"ports":[{"host":8080,"container":80}]}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
@@ -294,34 +294,34 @@ setup_test_dir
 git init -q
 
 # Test: "host" network mode should be rejected (bypasses isolation)
-cat > .claudebox.json << 'EOF'
+cat > .agentbox.json << 'EOF'
 {"dev":{"network":"host"}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
 assert_contains "$output" "Unsupported network mode" "host network rejected"
 
 # Test: Injection attempt via network mode
-cat > .claudebox.json << 'EOF'
+cat > .agentbox.json << 'EOF'
 {"dev":{"network":"bridge; rm -rf /"}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
 assert_contains "$output" "Unsupported" "network injection blocked"
 
 # Test: macvlan network mode should be rejected
-cat > .claudebox.json << 'EOF'
+cat > .agentbox.json << 'EOF'
 {"dev":{"network":"macvlan"}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
 assert_contains "$output" "Unsupported network mode" "macvlan network rejected"
 
 # Test: Valid network modes
-cat > .claudebox.json << 'EOF'
+cat > .agentbox.json << 'EOF'
 {"dev":{"network":"bridge"}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
 assert_not_contains "$output" "Unsupported" "bridge network accepted"
 
-cat > .claudebox.json << 'EOF'
+cat > .agentbox.json << 'EOF'
 {"dev":{"network":"none"}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
@@ -338,14 +338,14 @@ setup_test_dir
 git init -q
 
 # Test: Non-existent profile should error
-cat > .claudebox.json << 'EOF'
+cat > .agentbox.json << 'EOF'
 {"dev":{}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile nonexistent 2>&1 || true)
 assert_contains "$output" "not found" "non-existent profile rejected"
 
 # Test: Empty string profile name should work (auto-select)
-cat > .claudebox.json << 'EOF'
+cat > .agentbox.json << 'EOF'
 {"dev":{}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
@@ -361,7 +361,7 @@ setup_test_dir
 git init -q
 
 # Test: Valid resource limits should be passed through
-cat > .claudebox.json << 'EOF'
+cat > .agentbox.json << 'EOF'
 {
   "dev": {
     "cpu": "2",
@@ -385,42 +385,42 @@ setup_test_dir
 git init -q
 
 # Test: ~/.ssh should be blocked
-cat > .claudebox.json << EOF
+cat > .agentbox.json << EOF
 {"dev":{"mounts":[{"path":"$HOME/.ssh"}]}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
 assert_contains "$output" "blocked by security policy" "\$HOME/.ssh blocked"
 
 # Test: /etc should be blocked
-cat > .claudebox.json << 'EOF'
+cat > .agentbox.json << 'EOF'
 {"dev":{"mounts":[{"path":"/etc"}]}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
 assert_contains "$output" "blocked by security policy" "/etc blocked"
 
 # Test: /etc/passwd should be blocked (child of /etc)
-cat > .claudebox.json << 'EOF'
+cat > .agentbox.json << 'EOF'
 {"dev":{"mounts":[{"path":"/etc/passwd"}]}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
 assert_contains "$output" "blocked by security policy" "/etc/passwd blocked"
 
 # Test: / should be blocked
-cat > .claudebox.json << 'EOF'
+cat > .agentbox.json << 'EOF'
 {"dev":{"mounts":[{"path":"/"}]}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
 assert_contains "$output" "blocked by security policy" "/ blocked"
 
 # Test: ~/.aws should be blocked
-cat > .claudebox.json << EOF
+cat > .agentbox.json << EOF
 {"dev":{"mounts":[{"path":"$HOME/.aws"}]}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
 assert_contains "$output" "blocked by security policy" "\$HOME/.aws blocked"
 
 # Test: ~/.docker should be blocked
-cat > .claudebox.json << EOF
+cat > .agentbox.json << EOF
 {"dev":{"mounts":[{"path":"$HOME/.docker"}]}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
@@ -428,7 +428,7 @@ assert_contains "$output" "blocked by security policy" "\$HOME/.docker blocked"
 
 # Test: common user-secret paths should be blocked
 for sensitive_path in "$HOME/Library" "$HOME/.config/gh" "$HOME/.git-credentials" "$HOME/.pypirc"; do
-  cat > .claudebox.json << EOF
+  cat > .agentbox.json << EOF
 {"dev":{"mounts":[{"path":"$sensitive_path"}]}}
 EOF
   output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
@@ -439,14 +439,14 @@ done
 setup_fake_home
 fake_home="$LAST_FAKE_HOME"
 mkdir -p "$fake_home/.config" "$fake_home/projects/data"
-cat > .claudebox.json << EOF
+cat > .agentbox.json << EOF
 {"dev":{"mounts":[{"path":"$fake_home"}]}}
 EOF
 output=$(HOME="$fake_home" "$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
 assert_contains "$output" "blocked by security policy" "\$HOME ancestor blocked"
 
 # Test: $HOME/.config should be blocked because it would expose .config/gcloud
-cat > .claudebox.json << EOF
+cat > .agentbox.json << EOF
 {"dev":{"mounts":[{"path":"$fake_home/.config"}]}}
 EOF
 output=$(HOME="$fake_home" "$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
@@ -454,21 +454,21 @@ assert_contains "$output" "blocked by security policy" "\$HOME/.config ancestor 
 
 # Test: any hidden direct child under $HOME should be blocked by default
 mkdir -p "$fake_home/.customsecret"
-cat > .claudebox.json << EOF
+cat > .agentbox.json << EOF
 {"dev":{"mounts":[{"path":"$fake_home/.customsecret"}]}}
 EOF
 output=$(HOME="$fake_home" "$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
 assert_contains "$output" "blocked by security policy" "hidden \$HOME child blocked"
 
 # Test: Safe child under $HOME should still be allowed
-cat > .claudebox.json << EOF
+cat > .agentbox.json << EOF
 {"dev":{"mounts":[{"path":"$fake_home/projects/data"}]}}
 EOF
 output=$(HOME="$fake_home" "$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
 assert_not_contains "$output" "blocked" "safe child under \$HOME allowed"
 
 # Test: Blocked mount is skipped without aborting the whole run
-cat > .claudebox.json << EOF
+cat > .agentbox.json << EOF
 {"dev":{"mounts":[{"path":"$HOME/.ssh"}]}}
 EOF
 if "$PROCESSED_TEMPLATE" --dry-run --profile dev &>/dev/null; then
@@ -478,7 +478,7 @@ else
 fi
 
 # Test: Ancestor mount is also skipped without aborting
-cat > .claudebox.json << EOF
+cat > .agentbox.json << EOF
 {"dev":{"mounts":[{"path":"$fake_home"}]}}
 EOF
 if HOME="$fake_home" "$PROCESSED_TEMPLATE" --dry-run --profile dev &>/dev/null; then
@@ -505,7 +505,7 @@ assert_not_contains "$output" "Working directory blocked" "safe cwd under \$HOME
 
 # Test: Canonical temp paths are not blocked
 allowed_mount_dir=$(make_canonical_temp_dir)
-cat > .claudebox.json << EOF
+cat > .agentbox.json << EOF
 {"dev":{"mounts":[{"path":"$allowed_mount_dir"}]}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
@@ -530,7 +530,7 @@ ln -s "$symlink_root/safe-target" "$symlink_root/safe-link"
 ln -s "$symlink_root/real" "$symlink_root/workdir-link"
 
 # Test: Mount with blocked target behind a symlinked ancestor is rejected and skipped
-cat > .claudebox.json << EOF
+cat > .agentbox.json << EOF
 {"dev":{"mounts":[{"path":"$symlink_root/blocked-link/child"}]}}
 EOF
 output=$(HOME="$fake_home" "$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
@@ -538,7 +538,7 @@ assert_contains "$output" "traverses a symlink (security policy)" "blocked symli
 assert_contains "$output" "docker run" "blocked symlink ancestor skipped without aborting"
 
 # Test: Mount with a safe target behind a symlinked ancestor is also rejected
-cat > .claudebox.json << EOF
+cat > .agentbox.json << EOF
 {"dev":{"mounts":[{"path":"$symlink_root/safe-link/data"}]}}
 EOF
 output=$(HOME="$fake_home" "$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
@@ -546,7 +546,7 @@ assert_contains "$output" "traverses a symlink (security policy)" "safe symlink 
 assert_contains "$output" "docker run" "safe symlink ancestor skipped without aborting"
 
 # Test: Canonical safe path is still accepted
-cat > .claudebox.json << EOF
+cat > .agentbox.json << EOF
 {"dev":{"mounts":[{"path":"$symlink_root/safe-target/data"}]}}
 EOF
 output=$(HOME="$fake_home" "$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
@@ -579,40 +579,40 @@ setup_test_dir
 git init -q
 
 # Test: Invalid cpu format should be rejected
-cat > .claudebox.json << 'EOF'
+cat > .agentbox.json << 'EOF'
 {"dev":{"cpu":"abc"}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
 assert_contains "$output" "Invalid cpu format" "invalid cpu rejected"
 
 # Test: Injection attempt in cpu should be rejected
-cat > .claudebox.json << 'EOF'
+cat > .agentbox.json << 'EOF'
 {"dev":{"cpu":"2; rm -rf /"}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
 assert_contains "$output" "Invalid cpu format" "cpu injection rejected"
 
 # Test: Invalid memory format should be rejected
-cat > .claudebox.json << 'EOF'
+cat > .agentbox.json << 'EOF'
 {"dev":{"memory":"lots"}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
 assert_contains "$output" "Invalid memory format" "invalid memory rejected"
 
 # Test: Invalid pids_limit format should be rejected
-cat > .claudebox.json << 'EOF'
+cat > .agentbox.json << 'EOF'
 {"dev":{"pids_limit":"abc"}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
 assert_contains "$output" "Invalid pids_limit format" "invalid pids_limit rejected"
 
 # Test: Default pids-limit is always present (no profile config)
-echo '{"dev":{}}' > .claudebox.json
+echo '{"dev":{}}' > .agentbox.json
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
 assert_contains "$output" "--pids-limit 256" "default pids-limit present"
 
 # Test: Valid decimal cpu should be accepted
-cat > .claudebox.json << 'EOF'
+cat > .agentbox.json << 'EOF'
 {"dev":{"cpu":"1.5"}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
@@ -631,7 +631,7 @@ git init -q
 test_mount_rw=$(make_canonical_temp_dir)
 test_mount_ro=$(make_canonical_temp_dir)
 
-cat > .claudebox.json << EOF
+cat > .agentbox.json << EOF
 {
   "dev": {
     "mounts": [
@@ -662,14 +662,14 @@ git init -q
 
 # Test: --profile with no config file should error
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
-assert_contains "$output" "no .claudebox.json found" "error when --profile but no config"
+assert_contains "$output" "no .agentbox.json found" "error when --profile but no config"
 
 # Test: No config file and no --profile should NOT error about config
 output=$("$PROCESSED_TEMPLATE" --dry-run 2>&1)
-assert_not_contains "$output" ".claudebox.json" "no spurious config message without --profile"
+assert_not_contains "$output" ".agentbox.json" "no spurious config message without --profile"
 
 # Test: Config file with jq missing fails closed instead of skipping settings
-cat > .claudebox.json << 'EOF'
+cat > .agentbox.json << 'EOF'
 {"dev":{"network":"none"}}
 EOF
 no_jq_bin="$TEST_DIR/no-jq-bin"
@@ -678,7 +678,7 @@ for tool in basename dirname mkdir; do
   ln -s "$(command -v "$tool")" "$no_jq_bin/$tool"
 done
 output=$(PATH="$no_jq_bin" "$PROCESSED_TEMPLATE" --dry-run 2>&1 || true)
-assert_contains "$output" "jq is required to parse .claudebox.json" "missing jq fails closed"
+assert_contains "$output" "jq is required to parse .agentbox.json" "missing jq fails closed"
 
 teardown_test_dir
 
@@ -692,8 +692,8 @@ git init -q
 setup_fake_home
 fake_home="$LAST_FAKE_HOME"
 
-cat > .claudebox.Dockerfile << 'EOF'
-FROM claudebox
+cat > .agentbox.Dockerfile << 'EOF'
+FROM agentbox
 RUN exit 99
 EOF
 
@@ -708,7 +708,7 @@ if [ "$project_dockerfile_exit" -ne 0 ]; then
 else
   fail "project Dockerfile without opt-in should fail in dry-run"
 fi
-assert_contains "$output" "Refusing to build repo-controlled .claudebox.Dockerfile" "project Dockerfile dry-run requires opt-in"
+assert_contains "$output" "Refusing to build repo-controlled .agentbox.Dockerfile" "project Dockerfile dry-run requires opt-in"
 
 output=$(HOME="$fake_home" "$PROCESSED_TEMPLATE" --allow-project-dockerfile --dry-run 2>&1)
 assert_contains "$output" "Per-project image build allowed by --allow-project-dockerfile" "project Dockerfile dry-run reports opt-in"
@@ -726,7 +726,7 @@ setup_test_dir
 git init -q
 
 test_dryrun_mount=$(make_canonical_temp_dir)
-cat > .claudebox.json << EOF
+cat > .agentbox.json << EOF
 {
   "dev": {
     "mounts": [
@@ -755,7 +755,7 @@ echo "--- Profile Confirmation ---"
 setup_test_dir
 git init -q
 
-cat > .claudebox.json << 'EOF'
+cat > .agentbox.json << 'EOF'
 {"dev":{}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
@@ -771,12 +771,12 @@ setup_test_dir
 git init -q
 
 # Test: Profile with invalid mounts type should show jq error (not silently swallowed)
-cat > .claudebox.json << 'EOF'
+cat > .agentbox.json << 'EOF'
 {"dev": {"mounts": "not-an-array"}}
 EOF
 output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
 # jq should produce an error since .mounts is not iterable as an array
-assert_not_contains "$output" "CLAUDEBOX_EXTRA_MOUNTS=$" "parse error not silently swallowed"
+assert_not_contains "$output" "AGENTBOX_EXTRA_MOUNTS=$" "parse error not silently swallowed"
 
 teardown_test_dir
 
@@ -809,7 +809,7 @@ setup_fake_home
 fake_home="$LAST_FAKE_HOME"
 setup_fake_docker
 setup_fake_security
-mkdir -p "$fake_home/.claudebox/claude-config"
+mkdir -p "$fake_home/.agentbox/claude-config"
 
 output=$(HOME="$fake_home" PATH="$FAKE_TOOLS_PATH" "$PROCESSED_TEMPLATE" -p "hello" 2>&1 || true)
 assert_contains "$output" "No host Claude login detected." "missing host auth is rejected"
@@ -824,13 +824,13 @@ setup_fake_home
 fake_home="$LAST_FAKE_HOME"
 setup_fake_docker
 setup_fake_security
-mkdir -p "$fake_home/.claudebox/claude-config"
+mkdir -p "$fake_home/.agentbox/claude-config"
 
-cat > "$fake_home/.claudebox/claude-config/.credentials.json" << 'EOF'
+cat > "$fake_home/.agentbox/claude-config/.credentials.json" << 'EOF'
 {"claudeAiOauth":{"accessToken":"sandbox-access","refreshToken":"sandbox-refresh","expiresAt":123}}
 EOF
 
-cat > "$fake_home/.claudebox/.claude.json" << 'EOF'
+cat > "$fake_home/.agentbox/.claude.json" << 'EOF'
 {"oauthAccount":{"displayName":"Sandbox Session"}}
 EOF
 
@@ -956,7 +956,7 @@ cat > "$fake_home/.claude/.credentials.json" << 'EOF'
 {"claudeAiOauth":{"accessToken":"host-access","refreshToken":"host-refresh","expiresAt":123}}
 EOF
 
-cat > .claudebox.json << 'EOF'
+cat > .agentbox.json << 'EOF'
 {"offline":{"network":"none"}}
 EOF
 
@@ -976,7 +976,7 @@ setup_fake_home
 fake_home="$LAST_FAKE_HOME"
 setup_fake_docker
 setup_fake_security
-mkdir -p "$fake_home/.claude" "$fake_home/.claudebox/claude-config"
+mkdir -p "$fake_home/.claude" "$fake_home/.agentbox/claude-config"
 
 cat > "$fake_home/.claude.json" << 'EOF'
 {
@@ -993,7 +993,7 @@ cat > "$fake_home/.claude/.credentials.json" << 'EOF'
 {"claudeAiOauth":{"accessToken":"host-access","refreshToken":"host-refresh","expiresAt":123}}
 EOF
 
-cat > "$fake_home/.claudebox/.claude.json" << 'EOF'
+cat > "$fake_home/.agentbox/.claude.json" << 'EOF'
 {
   "recommendedSubscription": "stale",
   "subscriptionUpsellShownCount": 99,
@@ -1006,10 +1006,10 @@ EOF
 HOME="$fake_home" "$PROCESSED_TEMPLATE" trust >/dev/null 2>&1
 HOME="$fake_home" PATH="$FAKE_TOOLS_PATH" "$PROCESSED_TEMPLATE" -p "hello" >/dev/null 2>&1 || true
 
-synced_name=$(jq -r '.oauthAccount.displayName' "$fake_home/.claudebox/.claude.json")
-synced_subscription=$(jq -r '.recommendedSubscription' "$fake_home/.claudebox/.claude.json")
-synced_upsell_count=$(jq -r '.subscriptionUpsellShownCount' "$fake_home/.claudebox/.claude.json")
-synced_created_at=$(jq -r '.oauthAccount.accountCreatedAt' "$fake_home/.claudebox/.claude.json")
+synced_name=$(jq -r '.oauthAccount.displayName' "$fake_home/.agentbox/.claude.json")
+synced_subscription=$(jq -r '.recommendedSubscription' "$fake_home/.agentbox/.claude.json")
+synced_upsell_count=$(jq -r '.subscriptionUpsellShownCount' "$fake_home/.agentbox/.claude.json")
+synced_created_at=$(jq -r '.oauthAccount.accountCreatedAt' "$fake_home/.agentbox/.claude.json")
 
 assert_equals "$synced_name" "Host Session" "host oauthAccount overwrites stale sandbox data"
 assert_equals "$synced_subscription" "max" "host subscription metadata mirrored"
@@ -1028,7 +1028,7 @@ setup_fake_home
 fake_home="$LAST_FAKE_HOME"
 setup_fake_docker
 setup_fake_security
-mkdir -p "$fake_home/.claude" "$fake_home/.claudebox/claude-config"
+mkdir -p "$fake_home/.claude" "$fake_home/.agentbox/claude-config"
 
 cat > "$fake_home/.claude.json" << 'EOF'
 {}
@@ -1038,14 +1038,14 @@ cat > "$fake_home/.claude/.credentials.json" << 'EOF'
 {"claudeAiOauth":{"accessToken":"host-access","refreshToken":"host-refresh","expiresAt":123}}
 EOF
 
-cat > "$fake_home/.claudebox/claude-config/.credentials.json" << 'EOF'
+cat > "$fake_home/.agentbox/claude-config/.credentials.json" << 'EOF'
 {"claudeAiOauth":{"accessToken":"stale-access","refreshToken":"stale-refresh","expiresAt":1}}
 EOF
 
 HOME="$fake_home" "$PROCESSED_TEMPLATE" trust >/dev/null 2>&1
 HOME="$fake_home" PATH="$FAKE_TOOLS_PATH" "$PROCESSED_TEMPLATE" -p "hello" >/dev/null 2>&1 || true
 
-synced_refresh_token=$(jq -r '.claudeAiOauth.refreshToken' "$fake_home/.claudebox/claude-config/.credentials.json")
+synced_refresh_token=$(jq -r '.claudeAiOauth.refreshToken' "$fake_home/.agentbox/claude-config/.credentials.json")
 assert_equals "$synced_refresh_token" "host-refresh" "host credentials file mirrored into sandbox"
 
 teardown_test_dir
@@ -1061,9 +1061,9 @@ fake_home="$LAST_FAKE_HOME"
 setup_fake_docker
 setup_fake_security
 keychain_credentials_file="$TEST_DIR/keychain-credentials.json"
-mkdir -p "$fake_home/.claudebox/claude-config"
+mkdir -p "$fake_home/.agentbox/claude-config"
 
-cat > "$fake_home/.claudebox/claude-config/.credentials.json" << 'EOF'
+cat > "$fake_home/.agentbox/claude-config/.credentials.json" << 'EOF'
 {"claudeAiOauth":{"accessToken":"stale-access","refreshToken":"stale-refresh","expiresAt":1}}
 EOF
 
@@ -1074,7 +1074,7 @@ EOF
 HOME="$fake_home" "$PROCESSED_TEMPLATE" trust >/dev/null 2>&1
 HOME="$fake_home" PATH="$FAKE_TOOLS_PATH" FAKE_SECURITY_MODE=success FAKE_SECURITY_PAYLOAD_FILE="$keychain_credentials_file" "$PROCESSED_TEMPLATE" -p "hello" >/dev/null 2>&1 || true
 
-synced_refresh_token=$(jq -r '.claudeAiOauth.refreshToken' "$fake_home/.claudebox/claude-config/.credentials.json")
+synced_refresh_token=$(jq -r '.claudeAiOauth.refreshToken' "$fake_home/.agentbox/claude-config/.credentials.json")
 assert_equals "$synced_refresh_token" "keychain-refresh" "host keychain credentials mirrored into sandbox when file is absent"
 
 teardown_test_dir
@@ -1088,19 +1088,19 @@ setup_test_dir
 setup_fake_home
 fake_home="$LAST_FAKE_HOME"
 setup_fake_security
-mkdir -p "$fake_home/.claude" "$fake_home/.claudebox/claude-config"
+mkdir -p "$fake_home/.claude" "$fake_home/.agentbox/claude-config"
 
 cat > "$fake_home/.claude/.credentials.json" << 'EOF'
 {"claudeAiOauth":{"accessToken":"host-access","refreshToken":"host-refresh","expiresAt":123}}
 EOF
 
-cat > "$fake_home/.claudebox/claude-config/.credentials.json" << 'EOF'
+cat > "$fake_home/.agentbox/claude-config/.credentials.json" << 'EOF'
 {"claudeAiOauth":{"accessToken":"stale-access","refreshToken":"stale-refresh","expiresAt":1}}
 EOF
 
 HOME="$fake_home" PATH="$FAKE_TOOLS_PATH" "$PROCESSED_TEMPLATE" --dry-run >/dev/null 2>&1
 
-synced_refresh_token=$(jq -r '.claudeAiOauth.refreshToken' "$fake_home/.claudebox/claude-config/.credentials.json")
+synced_refresh_token=$(jq -r '.claudeAiOauth.refreshToken' "$fake_home/.agentbox/claude-config/.credentials.json")
 assert_equals "$synced_refresh_token" "stale-refresh" "dry-run does not mirror host credentials"
 
 teardown_test_dir
@@ -1125,19 +1125,19 @@ EOF
 
 HOME="$fake_home" "$PROCESSED_TEMPLATE" --dry-run >/dev/null 2>&1
 
-if [ -f "$fake_home/.claudebox/plugins/marketplaces/example-market/manifest.json" ]; then
+if [ -f "$fake_home/.agentbox/plugins/marketplaces/example-market/manifest.json" ]; then
   pass "marketplace plugins synced into sandbox mirror"
 else
   fail "marketplace plugins synced into sandbox mirror"
 fi
 
-if [ -f "$fake_home/.claudebox/plugins/cache/example-market/example-plugin/plugin.js" ]; then
+if [ -f "$fake_home/.agentbox/plugins/cache/example-market/example-plugin/plugin.js" ]; then
   pass "plugin cache synced into sandbox mirror"
 else
   fail "plugin cache synced into sandbox mirror"
 fi
 
-plugin_metadata=$(<"$fake_home/.claudebox/plugins/installed_plugins.json")
+plugin_metadata=$(<"$fake_home/.agentbox/plugins/installed_plugins.json")
 assert_contains "$plugin_metadata" "/home/claude/.claude/plugins/cache/example-market/example-plugin/plugin.js" "plugin metadata paths rewritten for container"
 assert_not_contains "$plugin_metadata" "$fake_home" "plugin metadata omits host home paths"
 

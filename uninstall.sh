@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# uninstall.sh - Standalone claudebox uninstaller
+# uninstall.sh - Standalone agentbox uninstaller
 #
 # Removes the Docker image, installed scripts, seccomp profile,
 # and PATH entry from the user's shell config.
@@ -22,9 +22,9 @@ for arg in "$@"; do
 done
 
 # Docker image name to remove
-IMAGE_NAME="claudebox"
+IMAGE_NAME="agentbox"
 # Name of the installed CLI command
-SCRIPT_NAME="claudebox"
+SCRIPT_NAME="agentbox"
 
 # Detect the user's shell RC file for PATH cleanup.
 detect_shell_rc() {
@@ -57,7 +57,7 @@ do_uninstall() {
   check_runtime
 
   # Prompt for confirmation before destructive operations
-  header "claudebox" "uninstaller"
+  header "agentbox" "uninstaller"
   if [ "$auto_yes" = false ]; then
     confirm "Remove $IMAGE_NAME image and standalone script?"
     if [[ ! "$REPLY" =~ ^[Yy]$ ]]; then
@@ -67,7 +67,7 @@ do_uninstall() {
   fi
 
   # All image variants that may exist
-  local images=("claudebox" "claudebox-test" "claudebox-project")
+  local images=("agentbox" "agentbox-test" "agentbox-project")
 
   # Step 1: Stop running containers from any variant image
   step "Stopping running containers"
@@ -96,9 +96,9 @@ do_uninstall() {
       docker rm "$id" 2>/dev/null || true
     done
   done
-  # Pass 2: orphaned audit containers (name starts with claudebox-)
+  # Pass 2: orphaned audit containers (name starts with agentbox-)
   local orphans
-  orphans=$(docker ps -aq --filter "name=claudebox-" 2>/dev/null) || true
+  orphans=$(docker ps -aq --filter "name=agentbox-" 2>/dev/null) || true
   for id in $orphans; do
     found_stopped=true
     list_item "Removing orphan" "$id"
@@ -118,8 +118,8 @@ do_uninstall() {
   done
   $found_image || dim "No images found"
 
-  # Remove the standalone CLI script from ~/.claudebox/bin/
-  local script_path="$HOME/.claudebox/bin/$SCRIPT_NAME"
+  # Remove the standalone CLI script from ~/.agentbox/bin/
+  local script_path="$HOME/.agentbox/bin/$SCRIPT_NAME"
   if [ -f "$script_path" ]; then
     rm -f "$script_path"
     success "Removed $script_path"
@@ -128,28 +128,28 @@ do_uninstall() {
   fi
 
   # Remove alias symlink
-  local alias_path="$HOME/.claudebox/bin/claudes"
+  local alias_path="$HOME/.agentbox/bin/claudes"
   if [ -L "$alias_path" ] || [ -f "$alias_path" ]; then
     rm -f "$alias_path"
     success "Removed $alias_path"
   fi
 
   # Remove seccomp profile
-  local seccomp_path="$HOME/.claudebox/seccomp.json"
+  local seccomp_path="$HOME/.agentbox/seccomp.json"
   if [ -f "$seccomp_path" ]; then
     rm -f "$seccomp_path"
     success "Removed seccomp profile"
   fi
 
   # Remove trusted entrypoint
-  local entrypoint_path="$HOME/.claudebox/entrypoint.sh"
+  local entrypoint_path="$HOME/.agentbox/entrypoint.sh"
   if [ -f "$entrypoint_path" ]; then
     rm -f "$entrypoint_path"
     success "Removed trusted entrypoint"
   fi
 
   # Remove style library
-  local style_path="$HOME/.claudebox/bin/style.sh"
+  local style_path="$HOME/.agentbox/bin/style.sh"
   if [ -f "$style_path" ]; then
     rm -f "$style_path"
     success "Removed $style_path"
@@ -159,10 +159,10 @@ do_uninstall() {
   shell_rc="$(detect_shell_rc)"
 
   # Remove the PATH entry and comment block from the shell config
-  if grep -qF '.claudebox/bin' "$shell_rc" 2>/dev/null; then
+  if grep -qF '.agentbox/bin' "$shell_rc" 2>/dev/null; then
     step "Removing PATH entry from $shell_rc"
-    # Delete both the "# claudebox" comment line and the PATH export line
-    sed -i.bak '/^# claudebox$/d;/\.claudebox\/bin/d' "$shell_rc"
+    # Delete both the "# agentbox" comment line and the PATH export line
+    sed -i.bak '/^# agentbox$/d;/\.agentbox\/bin/d' "$shell_rc"
     # Clean up the backup file created by sed -i
     rm -f "$shell_rc.bak"
     success "PATH entry removed"

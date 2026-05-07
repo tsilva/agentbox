@@ -1,10 +1,10 @@
 #!/bin/bash
 # =============================================================================
-# claudebox-template.sh - Standalone script template
+# agentbox-template.sh - Standalone script template
 #
 # This template is processed by do_install() which replaces
 # PLACEHOLDER_IMAGE_NAME with the real value. The resulting script is installed to
-# ~/.claudebox/bin/ and becomes the user-facing CLI.
+# ~/.agentbox/bin/ and becomes the user-facing CLI.
 # =============================================================================
 
 # Abort on any error
@@ -80,21 +80,21 @@ IMAGE_NAME="PLACEHOLDER_IMAGE_NAME"
 DEFAULT_PIDS_LIMIT=256
 
 # Seccomp profile path (for syscall filtering)
-SECCOMP_PROFILE="$HOME/.claudebox/seccomp.json"
+SECCOMP_PROFILE="$HOME/.agentbox/seccomp.json"
 
-# Host Claude state is the source of truth for auth/account data. claudebox keeps
-# isolated writable mirrors under ~/.claudebox/ and refreshes them before launch.
+# Host Claude state is the source of truth for auth/account data. agentbox keeps
+# isolated writable mirrors under ~/.agentbox/ and refreshes them before launch.
 HOST_CLAUDE_DIR="$HOME/.claude"
 HOST_CLAUDE_STATE_FILE="$HOME/.claude.json"
 HOST_CREDENTIALS_FILE="$HOST_CLAUDE_DIR/.credentials.json"
 HOST_KEYCHAIN_SERVICE="Claude Code-credentials"
-CLAUDEBOX_STATE_DIR="$HOME/.claudebox"
-TRUSTED_PROJECTS_DIR="$CLAUDEBOX_STATE_DIR/trusted-projects"
-TRUSTED_ENTRYPOINT_FILE="$CLAUDEBOX_STATE_DIR/entrypoint.sh"
-SANDBOX_CLAUDE_DIR="$CLAUDEBOX_STATE_DIR/claude-config"
-SANDBOX_DOTCONFIG_DIR="$CLAUDEBOX_STATE_DIR/claude-dotconfig"
-SANDBOX_PLUGINS_DIR="$CLAUDEBOX_STATE_DIR/plugins"
-SANDBOX_CLAUDE_STATE_FILE="$CLAUDEBOX_STATE_DIR/.claude.json"
+AGENTBOX_STATE_DIR="$HOME/.agentbox"
+TRUSTED_PROJECTS_DIR="$AGENTBOX_STATE_DIR/trusted-projects"
+TRUSTED_ENTRYPOINT_FILE="$AGENTBOX_STATE_DIR/entrypoint.sh"
+SANDBOX_CLAUDE_DIR="$AGENTBOX_STATE_DIR/claude-config"
+SANDBOX_DOTCONFIG_DIR="$AGENTBOX_STATE_DIR/claude-dotconfig"
+SANDBOX_PLUGINS_DIR="$AGENTBOX_STATE_DIR/plugins"
+SANDBOX_CLAUDE_STATE_FILE="$AGENTBOX_STATE_DIR/.claude.json"
 SANDBOX_CREDENTIALS_FILE="$SANDBOX_CLAUDE_DIR/.credentials.json"
 KEYCHAIN_AUTH_ERROR=""
 HOST_KEYCHAIN_CREDENTIALS_JSON=""
@@ -213,12 +213,12 @@ require_host_auth() {
   if keychain_auth_denied; then
     error_block "Host Claude login could not be read from macOS Keychain." \
       "Approve read access to '$HOST_KEYCHAIN_SERVICE' for the current user and retry." \
-      "claudebox only reads that specific keychain item when ~/.claude/.credentials.json is absent."
+      "agentbox only reads that specific keychain item when ~/.claude/.credentials.json is absent."
     exit 1
   fi
 
   error_block "No host Claude login detected." \
-    "Run 'claude' on the host and complete /login before starting claudebox."
+    "Run 'claude' on the host and complete /login before starting agentbox."
   exit 1
 }
 
@@ -284,7 +284,7 @@ extra_mounts=()        # Additional -v mounts from profile config
 extra_mounts_info=""   # Human-readable mount info for sandbox awareness
 extra_ports=()         # Additional -p ports from profile config
 workdir="$(pwd)"       # Mount the current directory as the working directory
-profile_name=""        # Selected profile from .claudebox.json
+profile_name=""        # Selected profile from .agentbox.json
 cmd_args=()            # Arguments forwarded to Claude Code inside the container
 first_cmd=""           # First non-flag argument (used to detect "shell" command)
 skip_next=false        # Flag to skip the next argument (used for --profile value)
@@ -332,14 +332,14 @@ fi
 if [ "$first_cmd" = "update" ]; then
   repo_path=""
   # Try curl-install clone dir first (a directory), then dev-install breadcrumb (a file with path inside)
-  if [ -d "$HOME/.claudebox/repo" ]; then
-    repo_path="$HOME/.claudebox/repo"
-  elif [ -f "$HOME/.claudebox/.repo-path" ]; then
-    repo_path=$(<"$HOME/.claudebox/.repo-path")
+  if [ -d "$HOME/.agentbox/repo" ]; then
+    repo_path="$HOME/.agentbox/repo"
+  elif [ -f "$HOME/.agentbox/.repo-path" ]; then
+    repo_path=$(<"$HOME/.agentbox/.repo-path")
   fi
   if [ -z "$repo_path" ] || [ ! -d "$repo_path" ]; then
-    error_block "Cannot find claudebox source directory" \
-      "Reinstall claudebox from the repo to enable updates."
+    error_block "Cannot find agentbox source directory" \
+      "Reinstall agentbox from the repo to enable updates."
     exit 1
   fi
   step "Updating from $repo_path"
@@ -352,7 +352,7 @@ if [ "$first_cmd" = "update" ]; then
   # Check if upstream Claude Code version differs from installed
   installed_version=""
   latest_version=""
-  version_file="$HOME/.claudebox/version"
+  version_file="$HOME/.agentbox/version"
   if [ -f "$version_file" ]; then
     installed_version=$(<"$version_file")
   fi
@@ -365,7 +365,7 @@ if [ "$first_cmd" = "update" ]; then
     exit 0
   fi
 
-  rm -f "$HOME/.claudebox/.latest-version"
+  rm -f "$HOME/.agentbox/.latest-version"
   exec "$repo_path/install.sh" --update
 fi
 
@@ -374,8 +374,8 @@ fi
 # Uses a 24h-cached check against the GCS latest endpoint.
 check_version_staleness() {
   local installed_version latest_version cache_file cache_age now file_mtime
-  local version_file="$HOME/.claudebox/version"
-  cache_file="$HOME/.claudebox/.latest-version"
+  local version_file="$HOME/.agentbox/version"
+  cache_file="$HOME/.agentbox/.latest-version"
 
   # No version file means pre-version-tracking build — skip silently
   [ -f "$version_file" ] || return 0
@@ -402,7 +402,7 @@ check_version_staleness() {
     latest_version=$(curl -fsSL --max-time 2 \
       "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/latest" 2>/dev/null) || true
     if [ -n "$latest_version" ]; then
-      mkdir -p "$HOME/.claudebox"
+      mkdir -p "$HOME/.agentbox"
       printf '%s' "$latest_version" > "$cache_file"
     else
       # Fetch failed — fall back to stale cache
@@ -413,7 +413,7 @@ check_version_staleness() {
   # Compare versions
   [ -n "${latest_version:-}" ] || return 0
   if [ "$installed_version" != "$latest_version" ]; then
-    warn "update available ($installed_version → $latest_version) — run: claudebox update"
+    warn "update available ($installed_version → $latest_version) — run: agentbox update"
   fi
 }
 [ "$print_mode" = false ] && check_version_staleness
@@ -435,7 +435,7 @@ BLOCKED_PATHS=(
   "$HOME/.m2/settings.xml" "$HOME/.gradle/gradle.properties"
   "$HOME/Library" "$HOME/.1password" "$HOME/.bitwarden" "$HOME/.config/Bitwarden"
   # Claude-specific (already managed)
-  "$HOME/.claude" "$HOME/.claudebox"
+  "$HOME/.claude" "$HOME/.agentbox"
 )
 
 normalize_path() {
@@ -594,7 +594,7 @@ validate_strict_host_path() {
 
 # Validate the implicit working directory mount before any docker args are built.
 if ! validate_strict_host_path "Working directory" "$workdir" \
-  "Run claudebox from the canonical path directly"; then
+  "Run agentbox from the canonical path directly"; then
   exit 1
 fi
 
@@ -673,39 +673,39 @@ elif [ "$first_cmd" = "untrust" ]; then
   exit 0
 fi
 
-# --- Per-project configuration (.claudebox.json) ---
-if [ -f ".claudebox.json" ]; then
+# --- Per-project configuration (.agentbox.json) ---
+if [ -f ".agentbox.json" ]; then
   # jq is required to parse the JSON config
   if ! command -v jq &>/dev/null; then
-    error_block "jq is required to parse .claudebox.json." \
+    error_block "jq is required to parse .agentbox.json." \
       "Install jq and retry so profile security settings are not skipped."
     exit 1
   else
     # Validate the config file is a JSON object (not array, string, etc.)
     jq_error=""
-    if ! jq_error=$(jq -e 'type == "object"' .claudebox.json 2>&1); then
-      error "Invalid .claudebox.json: $jq_error"
+    if ! jq_error=$(jq -e 'type == "object"' .agentbox.json 2>&1); then
+      error "Invalid .agentbox.json: $jq_error"
       exit 1
     fi
 
     # Count available profiles (root-level keys in the JSON object)
-    profile_count=$(jq 'keys | length' .claudebox.json 2>/dev/null || echo 0)
+    profile_count=$(jq 'keys | length' .agentbox.json 2>/dev/null || echo 0)
 
     # If no profile was specified via flag, auto-select or prompt interactively
     if [ -z "$profile_name" ] && [ "$profile_count" -eq 1 ]; then
-      profile_name=$(jq -r 'keys[0]' .claudebox.json)
+      profile_name=$(jq -r 'keys[0]' .agentbox.json)
     elif [ -z "$profile_name" ] && [ "$profile_count" -gt 1 ]; then
       # Read profile names into an array for the selection menu (compatible with Bash 3)
       profile_array=()
-      while IFS= read -r _p; do profile_array+=("$_p"); done < <(jq -r 'keys[]' .claudebox.json)
+      while IFS= read -r _p; do profile_array+=("$_p"); done < <(jq -r 'keys[]' .agentbox.json)
       profile_name=$(choose "Select profile:" "${profile_array[@]}")
     fi
 
     # Validate the selected profile exists in the config
     if [ -n "$profile_name" ]; then
-      if ! jq -e --arg p "$profile_name" 'has($p)' .claudebox.json &>/dev/null; then
+      if ! jq -e --arg p "$profile_name" 'has($p)' .agentbox.json &>/dev/null; then
         error "Profile '$profile_name' not found"
-        note "Available: $(jq -r 'keys | join(", ")' .claudebox.json)"
+        note "Available: $(jq -r 'keys | join(", ")' .agentbox.json)"
         exit 1
       fi
 
@@ -725,10 +725,10 @@ if [ -f ".claudebox.json" ]; then
           ulimit_nofile: (.ulimit_nofile // null),
           ulimit_fsize: (.ulimit_fsize // null)
         }
-      ' .claudebox.json)
+      ' .agentbox.json)
 
       if [ -z "$profile_config" ]; then
-        error "Failed to parse profile '$profile_name' from .claudebox.json"
+        error "Failed to parse profile '$profile_name' from .agentbox.json"
         exit 1
       fi
 
@@ -821,7 +821,7 @@ if [ -f ".claudebox.json" ]; then
   fi
 else
   if [ -n "$profile_name" ]; then
-    error "--profile '$profile_name' specified but no .claudebox.json found in $(pwd)"
+    error "--profile '$profile_name' specified but no .agentbox.json found in $(pwd)"
     exit 1
   fi
 fi
@@ -853,7 +853,7 @@ if [ "$dry_run" != true ]; then
   require_host_auth
   if [ "${network_mode:-bridge}" != "none" ] && ! is_project_trusted; then
     error_block "Project is not trusted for networked Claude credentials: $workdir" \
-      "Run 'claudebox trust' from this project directory after reviewing it, or set network: \"none\" in .claudebox.json."
+      "Run 'agentbox trust' from this project directory after reviewing it, or set network: \"none\" in .agentbox.json."
     exit 1
   fi
   prepare_sandbox_state
@@ -887,22 +887,22 @@ resource_args+=(--pids-limit "${profile_pids_limit:-$DEFAULT_PIDS_LIMIT}")
 [ -n "${profile_ulimit_fsize:-}" ] && resource_args+=(--ulimit "fsize=$profile_ulimit_fsize:$profile_ulimit_fsize")
 
 # --- Per-project Dockerfile ---
-# If a project provides .claudebox.Dockerfile, use a custom image layered on top
+# If a project provides .agentbox.Dockerfile, use a custom image layered on top
 # of the base image for project-specific dependencies. Actual builds happen only
 # for real runs; --dry-run prints the command without executing repo-controlled
 # Docker build steps.
 run_image="$IMAGE_NAME"
 project_image_note=""
 project_runtime_args=()
-if [ -f ".claudebox.Dockerfile" ]; then
+if [ -f ".agentbox.Dockerfile" ]; then
   if [ "$allow_project_dockerfile" != true ]; then
-    error_block "Refusing to build repo-controlled .claudebox.Dockerfile without explicit opt-in." \
+    error_block "Refusing to build repo-controlled .agentbox.Dockerfile without explicit opt-in." \
       "Review the Dockerfile, then retry with --allow-project-dockerfile if you trust this project."
     exit 1
   fi
   if [ ! -f "$TRUSTED_ENTRYPOINT_FILE" ]; then
     error_block "Trusted entrypoint not found at $TRUSTED_ENTRYPOINT_FILE" \
-      "Reinstall claudebox so project images can use the host-controlled entrypoint."
+      "Reinstall agentbox so project images can use the host-controlled entrypoint."
     exit 1
   fi
   run_image="${IMAGE_NAME}-project"
@@ -939,7 +939,7 @@ fi
 # Ensure the seccomp profile exists before running the container
 if [ ! -f "$SECCOMP_PROFILE" ]; then
   error_block "Seccomp profile not found at $SECCOMP_PROFILE" \
-    "Please reinstall claudebox."
+    "Please reinstall agentbox."
   exit 1
 fi
 
@@ -949,10 +949,10 @@ fi
 container_args=()
 if [ "$audit_log" = "true" ]; then
   # Name includes timestamp and PID for uniqueness across concurrent sessions
-  container_name="claudebox-$(date +%s)-$$"
+  container_name="agentbox-$(date +%s)-$$"
   container_args+=(--name "$container_name")
   # Ensure the logs directory exists for session log dumps
-  mkdir -p ~/.claudebox/logs
+  mkdir -p ~/.agentbox/logs
 else
   # Auto-remove container on exit for zero disk overhead
   container_args+=(--rm)
@@ -983,7 +983,7 @@ docker_cmd=(
   --security-opt=no-new-privileges
   # Apply seccomp profile for syscall filtering
   --security-opt "seccomp=$SECCOMP_PROFILE"
-  # Project images are forced back to the claudebox runtime contract.
+  # Project images are forced back to the agentbox runtime contract.
   ${project_runtime_args[@]+"${project_runtime_args[@]}"}
   # Mount rootfs as read-only; writable dirs use tmpfs below
   --read-only
@@ -998,18 +998,18 @@ docker_cmd=(
   # Apply network mode if non-default
   ${network_args[@]+"${network_args[@]}"}
   # Pass profile context to container for sandbox awareness CLAUDE.md generation
-  -e "CLAUDEBOX_NETWORK_MODE=${network_mode:-bridge}"
-  -e "CLAUDEBOX_CPU_LIMIT=${profile_cpu:-}"
-  -e "CLAUDEBOX_MEMORY_LIMIT=${profile_memory:-}"
-  -e "CLAUDEBOX_PIDS_LIMIT=${profile_pids_limit:-$DEFAULT_PIDS_LIMIT}"
-  -e "CLAUDEBOX_EXTRA_MOUNTS=${extra_mounts_info:-}"
-  -e "CLAUDEBOX_READONLY=${readonly_mode:-false}"
+  -e "AGENTBOX_NETWORK_MODE=${network_mode:-bridge}"
+  -e "AGENTBOX_CPU_LIMIT=${profile_cpu:-}"
+  -e "AGENTBOX_MEMORY_LIMIT=${profile_memory:-}"
+  -e "AGENTBOX_PIDS_LIMIT=${profile_pids_limit:-$DEFAULT_PIDS_LIMIT}"
+  -e "AGENTBOX_EXTRA_MOUNTS=${extra_mounts_info:-}"
+  -e "AGENTBOX_READONLY=${readonly_mode:-false}"
   # Set the working directory inside the container to match the host
   --workdir "$workdir"
   # Mount the current project directory at the same path for path parity
   -v "${workdir}:${workdir}${ro_suffix}"
   # Mount the sandbox mirror of Claude's ~/.claude directory. Auth is refreshed
-  # from the host before launch, but subsequent writes stay isolated to claudebox.
+  # from the host before launch, but subsequent writes stay isolated to agentbox.
   -v "$SANDBOX_CLAUDE_DIR:/home/claude/.claude${ro_suffix}"
   # Keep sandbox-awareness CLAUDE.md writable via a tmpfs-backed runtime path.
   --tmpfs "/home/claude/.claude/runtime:rw,nosuid,size=16m,uid=1000,gid=1000"
@@ -1044,11 +1044,11 @@ if [ "$dry_run" = true ]; then
   exit 0
 fi
 
-if [ -f ".claudebox.Dockerfile" ]; then
+if [ -f ".agentbox.Dockerfile" ]; then
   step "Building per-project image"
   # Build quietly (-q) since this runs on every invocation
-  if ! docker build -q -f .claudebox.Dockerfile -t "$run_image" . >&2; then
-    error "Failed to build per-project image from .claudebox.Dockerfile"
+  if ! docker build -q -f .agentbox.Dockerfile -t "$run_image" . >&2; then
+    error "Failed to build per-project image from .agentbox.Dockerfile"
     exit 1
   fi
 fi
@@ -1070,7 +1070,7 @@ if [ "$audit_log" = "true" ]; then
   "${docker_cmd[@]}" || exit_code=$?
 
   # Dump the container's stdout/stderr to a log file for audit review
-  log_file=~/.claudebox/logs/${container_name}.log
+  log_file=~/.agentbox/logs/${container_name}.log
   docker logs "$container_name" > "$log_file" 2>&1 || true
   # Remove the named container now that logs are captured
   docker rm "$container_name" &>/dev/null || true

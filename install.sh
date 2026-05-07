@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# install.sh - Self-contained claudebox installer (dual-mode)
+# install.sh - Self-contained agentbox installer (dual-mode)
 #
 # Modes:
 #   Curl pipe:  curl -fsSL .../install.sh | bash   (clones repo, then re-execs)
@@ -17,20 +17,20 @@ if [ -f "${SCRIPT_DIR:-}/style.sh" ]; then
 fi
 
 # Docker image name used for building and running containers
-IMAGE_NAME="claudebox"
+IMAGE_NAME="agentbox"
 # Name of the installed CLI command the user will invoke
-SCRIPT_NAME="claudebox"
+SCRIPT_NAME="agentbox"
 # Repo URL for curl-pipe mode
-REPO_URL="https://github.com/tsilva/claudebox.git"
+REPO_URL="https://github.com/tsilva/agentbox.git"
 # Clone destination for curl-pipe installs
-CLONE_DIR="$HOME/.claudebox/repo"
+CLONE_DIR="$HOME/.agentbox/repo"
 
 # --- Dual-mode detection ---
 # When piped via curl, BASH_SOURCE[0] is empty or unset.
 # When run as a file, it resolves to the script path.
 if [ -z "${BASH_SOURCE[0]:-}" ] || [ ! -f "${BASH_SOURCE[0]}" ]; then
   # Curl-pipe mode: clone/update repo, then re-exec the cloned install.sh
-  header "claudebox" "installer"
+  header "agentbox" "installer"
 
   if [ -d "$CLONE_DIR" ]; then
     step "Updating existing installation"
@@ -50,7 +50,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/repo-common.sh
 source "$REPO_ROOT/scripts/repo-common.sh"
 
-# Parse --update flag (passed by `claudebox update` to bust Docker cache)
+# Parse --update flag (passed by `agentbox update` to bust Docker cache)
 update_mode=false
 for arg in "$@"; do
   [ "$arg" = "--update" ] && update_mode=true
@@ -95,12 +95,12 @@ do_build() {
   success "Image '$IMAGE_NAME' is ready"
 }
 
-# Build the image and install the standalone CLI script to ~/.claudebox/bin/
+# Build the image and install the standalone CLI script to ~/.agentbox/bin/
 do_install() {
-  header "claudebox" "installer"
+  header "agentbox" "installer"
 
-  if [ "$update_mode" = false ] && [ -f "$HOME/.claudebox/bin/$SCRIPT_NAME" ]; then
-    warn "claudebox is already installed"
+  if [ "$update_mode" = false ] && [ -f "$HOME/.agentbox/bin/$SCRIPT_NAME" ]; then
+    warn "agentbox is already installed"
     confirm "Reinstall?"
     if [[ ! "$REPLY" =~ ^[Yy]$ ]]; then
       info "Install cancelled"
@@ -114,31 +114,31 @@ do_install() {
   shell_rc="$(detect_shell_rc)"
 
   # Create the bin directory and generate the standalone script from the template
-  local bin_dir="$HOME/.claudebox/bin"
+  local bin_dir="$HOME/.agentbox/bin"
   local script_path="$bin_dir/$SCRIPT_NAME"
   mkdir -p "$bin_dir"
 
   # Replace placeholders in the template with the actual image name
   sed "s|PLACEHOLDER_IMAGE_NAME|$IMAGE_NAME|g" \
-    "${REPO_ROOT}/scripts/claudebox-template.sh" > "$script_path"
+    "${REPO_ROOT}/scripts/agentbox-template.sh" > "$script_path"
   chmod +x "$script_path"
   success "Installed $script_path"
 
   # Copy the seccomp profile to the install directory
-  cp "${REPO_ROOT}/scripts/seccomp.json" "$HOME/.claudebox/seccomp.json"
-  success "Installed $HOME/.claudebox/seccomp.json"
+  cp "${REPO_ROOT}/scripts/seccomp.json" "$HOME/.agentbox/seccomp.json"
+  success "Installed $HOME/.agentbox/seccomp.json"
 
   # Copy the trusted entrypoint used to override repo-controlled project images
-  cp "${REPO_ROOT}/entrypoint.sh" "$HOME/.claudebox/entrypoint.sh"
-  chmod +x "$HOME/.claudebox/entrypoint.sh"
-  success "Installed $HOME/.claudebox/entrypoint.sh"
+  cp "${REPO_ROOT}/entrypoint.sh" "$HOME/.agentbox/entrypoint.sh"
+  chmod +x "$HOME/.agentbox/entrypoint.sh"
+  success "Installed $HOME/.agentbox/entrypoint.sh"
 
   # Copy the style library for the standalone CLI
   cp "${REPO_ROOT}/style.sh" "$bin_dir/style.sh"
   success "Installed $bin_dir/style.sh"
 
-  # Store repo path so `claudebox update` can find the source tree
-  printf '%s' "$REPO_ROOT" > "$HOME/.claudebox/.repo-path"
+  # Store repo path so `agentbox update` can find the source tree
+  printf '%s' "$REPO_ROOT" > "$HOME/.agentbox/.repo-path"
 
   # Create alias symlink
   ln -sf "$SCRIPT_NAME" "$bin_dir/claudes"
@@ -146,11 +146,11 @@ do_install() {
 
   # Add the bin directory to PATH in the user's shell config (idempotent)
   # shellcheck disable=SC2016
-  local path_line='export PATH="$HOME/.claudebox/bin:$PATH"'
-  if ! grep -qF '.claudebox/bin' "$shell_rc" 2>/dev/null; then
+  local path_line='export PATH="$HOME/.agentbox/bin:$PATH"'
+  if ! grep -qF '.agentbox/bin' "$shell_rc" 2>/dev/null; then
     {
       echo ""
-      echo "# claudebox"
+      echo "# agentbox"
       echo "$path_line"
     } >> "$shell_rc"
     success "Added PATH entry to $shell_rc"

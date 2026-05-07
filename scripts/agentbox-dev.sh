@@ -1,8 +1,8 @@
 #!/bin/bash
 #
-# claudebox-dev.sh - Development CLI for claudebox
+# agentbox-dev.sh - Development CLI for agentbox
 #
-# Usage: ./scripts/claudebox-dev.sh <command>
+# Usage: ./scripts/agentbox-dev.sh <command>
 #
 # Commands:
 #   build      Build the Docker image
@@ -27,7 +27,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=repo-common.sh
 source "$SCRIPT_DIR/repo-common.sh"
 # Docker image name used for building and running containers
-IMAGE_NAME="claudebox"
+IMAGE_NAME="agentbox"
 
 # Build the Docker image from the repo's Dockerfile
 # Pass --bust-cache to invalidate the Claude Code download layer
@@ -54,10 +54,10 @@ do_build() {
   persist_installed_version "$IMAGE_NAME"
 
   success "Image '$IMAGE_NAME' is ready"
-  info "Run 'claudebox' from any directory to start"
+  info "Run 'agentbox' from any directory to start"
 }
 
-# Stop all running containers spawned from the claudebox image
+# Stop all running containers spawned from the agentbox image
 do_kill_containers() {
   # Ensure Docker is available to query/stop containers
   check_runtime
@@ -110,7 +110,7 @@ case "$cmd" in
     ;;
   *)
     # No valid command — print usage and exit with error
-    header "claudebox" "dev"
+    header "agentbox" "dev"
     list_item "build" "Build the Docker image"
     list_item "install" "Build image and install standalone script"
     list_item "uninstall" "Remove image and standalone script"

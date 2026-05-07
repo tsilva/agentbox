@@ -25,7 +25,7 @@ echo "--- Capability Tests ---"
 
 # All capability fields should be zero (no capabilities)
 caps=$(docker run --rm --cap-drop=ALL --entrypoint /bin/bash \
-  claudebox -c "cat /proc/self/status | grep '^Cap' | awk '{print \$2}'")
+  agentbox -c "cat /proc/self/status | grep '^Cap' | awk '{print \$2}'")
 
 all_zero=true
 for cap in $caps; do
@@ -44,7 +44,7 @@ fi
 
 # Test that raw socket creation fails without CAP_NET_RAW
 raw_socket_result=$(docker run --rm --cap-drop=ALL --entrypoint /bin/bash \
-  claudebox -c "python3 -c 'import socket; socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)' 2>&1" || true)
+  agentbox -c "python3 -c 'import socket; socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)' 2>&1" || true)
 
 if echo "$raw_socket_result" | grep -qE "(Operation not permitted|PermissionError)"; then
   pass "raw sockets blocked (CAP_NET_RAW dropped)"
@@ -59,22 +59,22 @@ echo "--- Filesystem Isolation ---"
 
 # Host paths should not be accessible
 host_path_result=$(docker run --rm --entrypoint /bin/bash \
-  claudebox -c "ls /Users 2>&1" || true)
+  agentbox -c "ls /Users 2>&1" || true)
 assert_contains "$host_path_result" "No such file" "/Users not accessible"
 
 # /etc/passwd inside container should NOT contain host users
 passwd_content=$(docker run --rm --entrypoint /bin/bash \
-  claudebox -c "cat /etc/passwd")
+  agentbox -c "cat /etc/passwd")
 assert_not_contains "$passwd_content" "$(whoami)" "host user not in container /etc/passwd"
 
 # Test read-only root filesystem
 readonly_result=$(docker run --rm --read-only --entrypoint /bin/bash \
-  claudebox -c "touch /usr/test 2>&1" || true)
+  agentbox -c "touch /usr/test 2>&1" || true)
 assert_contains "$readonly_result" "Read-only file system" "root filesystem is read-only"
 
 # Test that /opt is read-only (where claude binary lives)
 opt_result=$(docker run --rm --read-only --entrypoint /bin/bash \
-  claudebox -c "touch /opt/test 2>&1" || true)
+  agentbox -c "touch /opt/test 2>&1" || true)
 assert_contains "$opt_result" "Read-only file system" "/opt is read-only"
 
 # --- Test: Process isolation (PID namespace) ---
@@ -83,7 +83,7 @@ echo "--- Process Isolation ---"
 
 # PID 1 should be our process, not the host init
 pid1_cmdline=$(docker run --rm --entrypoint /bin/bash \
-  claudebox -c "cat /proc/1/cmdline | tr '\0' ' '")
+  agentbox -c "cat /proc/1/cmdline | tr '\0' ' '")
 
 # In a proper PID namespace, PID 1 is the container's entrypoint
 # Not systemd, init, or launchd from the host
@@ -93,7 +93,7 @@ assert_not_contains "$pid1_cmdline" "/sbin/init" "PID 1 is not host init"
 
 # Container should only see its own processes
 proc_count=$(docker run --rm --entrypoint /bin/bash \
-  claudebox -c "find /proc -maxdepth 1 -type d -regex '/proc/[0-9]+' | wc -l")
+  agentbox -c "find /proc -maxdepth 1 -type d -regex '/proc/[0-9]+' | wc -l")
 # Should be a small number of processes within the PID namespace
 if [ "$proc_count" -lt 10 ]; then
   pass "container sees limited processes ($proc_count processes)"
@@ -107,7 +107,7 @@ echo "--- Network Isolation ---"
 
 # With --network none, there should be no configured routes
 route_count=$(docker run --rm --network none --entrypoint /bin/bash \
-  claudebox -c "tail -n +2 /proc/net/route | wc -l")
+  agentbox -c "tail -n +2 /proc/net/route | wc -l")
 
 if [ "$route_count" -eq 0 ]; then
   pass "network none: no routes configured"
@@ -118,7 +118,7 @@ fi
 
 # External DNS should fail with --network none
 dns_result=$(docker run --rm --network none --entrypoint /bin/bash \
-  claudebox -c "getent hosts google.com 2>&1" || true)
+  agentbox -c "getent hosts google.com 2>&1" || true)
 # Should fail or timeout
 if echo "$dns_result" | grep -qE "(not found|No address|failure|error|timed out)" || [ -z "$dns_result" ]; then
   pass "network none: external DNS blocked"
@@ -133,12 +133,12 @@ echo "--- User Namespace ---"
 
 # Verify we can't write to root-owned directories
 root_write_result=$(docker run --rm --entrypoint /bin/bash \
-  claudebox -c "touch /root/test 2>&1" || true)
+  agentbox -c "touch /root/test 2>&1" || true)
 assert_contains "$root_write_result" "Permission denied" "cannot write to /root"
 
 # Verify we can't change ownership
 chown_result=$(docker run --rm --entrypoint /bin/bash \
-  claudebox -c "chown root:root /tmp 2>&1" || true)
+  agentbox -c "chown root:root /tmp 2>&1" || true)
 assert_contains "$chown_result" "Operation not permitted" "cannot chown (no CAP_CHOWN)"
 
 # --- Test: Tmpfs security ---
@@ -148,7 +148,7 @@ echo "--- Tmpfs Security ---"
 # Verify tmpfs mounts are present and writable
 tmpfs_write=$(docker run --rm --read-only \
   --tmpfs "/tmp:rw,nosuid,size=64m" \
-  --entrypoint /bin/bash claudebox -c "touch /tmp/test && echo ok")
+  --entrypoint /bin/bash agentbox -c "touch /tmp/test && echo ok")
 assert_equals "$tmpfs_write" "ok" "tmpfs /tmp is writable"
 
 # Verify nosuid is enforced on tmpfs (setuid binaries won't work)
@@ -156,7 +156,7 @@ assert_equals "$tmpfs_write" "ok" "tmpfs /tmp is writable"
 # the mount options
 mount_opts=$(docker run --rm --read-only \
   --tmpfs "/tmp:rw,nosuid,size=64m" \
-  --entrypoint /bin/bash claudebox -c "mount | grep '/tmp' | head -1")
+  --entrypoint /bin/bash agentbox -c "mount | grep '/tmp' | head -1")
 assert_contains "$mount_opts" "nosuid" "tmpfs has nosuid mount option"
 
 # --- Test: No privileged mode ---
@@ -168,7 +168,7 @@ echo "--- Privileged Mode Check ---"
 
 # In a non-privileged container, /dev should have limited devices
 dev_count=$(docker run --rm --entrypoint /bin/bash \
-  claudebox -c "ls /dev | wc -l")
+  agentbox -c "ls /dev | wc -l")
 if [ "$dev_count" -lt 30 ]; then
   pass "limited /dev entries ($dev_count devices)"
 else
@@ -177,7 +177,7 @@ fi
 
 # /sys should be read-only
 sys_write_result=$(docker run --rm --entrypoint /bin/bash \
-  claudebox -c "echo test > /sys/test" 2>&1 || true)
+  agentbox -c "echo test > /sys/test" 2>&1 || true)
 # Should fail with permission denied or read-only
 if echo "$sys_write_result" | grep -qE "(Permission denied|Read-only|No such file)"; then
   pass "/sys is protected"

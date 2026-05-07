@@ -18,7 +18,7 @@ claude_md_path="/home/claude/.claude/CLAUDE.md"
 
 # Generate sandbox awareness CLAUDE.md
 cat > "$claude_md_path" << 'SANDBOX_EOF'
-# Sandbox Environment (claudebox)
+# Sandbox Environment (agentbox)
 
 You are running inside an isolated Docker sandbox. Be aware of these constraints:
 
@@ -38,19 +38,19 @@ SANDBOX_EOF
 {
   echo ""
   echo "## Current Profile Settings"
-  echo "- Network mode: ${CLAUDEBOX_NETWORK_MODE:-bridge}"
-  [ -n "${CLAUDEBOX_CPU_LIMIT:-}" ] && echo "- CPU limit: $CLAUDEBOX_CPU_LIMIT"
-  [ -n "${CLAUDEBOX_MEMORY_LIMIT:-}" ] && echo "- Memory limit: $CLAUDEBOX_MEMORY_LIMIT"
-  [ -n "${CLAUDEBOX_PIDS_LIMIT:-}" ] && echo "- Process limit: $CLAUDEBOX_PIDS_LIMIT"
-  [ "${CLAUDEBOX_READONLY:-false}" = "true" ] && echo "- Workspace: **read-only** (--readonly flag)"
+  echo "- Network mode: ${AGENTBOX_NETWORK_MODE:-bridge}"
+  [ -n "${AGENTBOX_CPU_LIMIT:-}" ] && echo "- CPU limit: $AGENTBOX_CPU_LIMIT"
+  [ -n "${AGENTBOX_MEMORY_LIMIT:-}" ] && echo "- Memory limit: $AGENTBOX_MEMORY_LIMIT"
+  [ -n "${AGENTBOX_PIDS_LIMIT:-}" ] && echo "- Process limit: $AGENTBOX_PIDS_LIMIT"
+  [ "${AGENTBOX_READONLY:-false}" = "true" ] && echo "- Workspace: **read-only** (--readonly flag)"
 
-  if [ -n "${CLAUDEBOX_EXTRA_MOUNTS:-}" ]; then
+  if [ -n "${AGENTBOX_EXTRA_MOUNTS:-}" ]; then
     echo ""
     echo "## Extra Mounts"
-    echo "$CLAUDEBOX_EXTRA_MOUNTS"
+    echo "$AGENTBOX_EXTRA_MOUNTS"
   fi
 
-  if [ "${CLAUDEBOX_NETWORK_MODE:-bridge}" = "none" ]; then
+  if [ "${AGENTBOX_NETWORK_MODE:-bridge}" = "none" ]; then
     echo ""
     echo "## ⚠️ Network Isolated"
     echo "This container has no network access. All external requests will fail."

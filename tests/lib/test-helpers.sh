@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# test-helpers.sh - Shared test utilities for claudebox tests
+# test-helpers.sh - Shared test utilities for agentbox tests
 # =============================================================================
 
 # Test counters
@@ -115,7 +115,7 @@ canonicalize_path() {
 # Create a temporary test directory and cd into it
 # Sets TEST_DIR global variable
 setup_test_dir() {
-  TEST_DIR=$(mktemp -d /tmp/claudebox-test.XXXXXX 2>/dev/null || mktemp -d)
+  TEST_DIR=$(mktemp -d /tmp/agentbox-test.XXXXXX 2>/dev/null || mktemp -d)
   TEST_DIR=$(canonicalize_path "$TEST_DIR")
   cd "$TEST_DIR" || exit 1
   # Initialize as a git repo (many tests need this)
@@ -154,11 +154,11 @@ require_docker() {
   fi
 }
 
-# Check if the claudebox image exists
+# Check if the agentbox image exists
 require_image() {
-  if ! docker image inspect claudebox &>/dev/null; then
-    echo "SKIP: claudebox image not built"
-    echo "Run: docker build -t claudebox ."
+  if ! docker image inspect agentbox &>/dev/null; then
+    echo "SKIP: agentbox image not built"
+    echo "Run: docker build -t agentbox ."
     exit 0
   fi
 }

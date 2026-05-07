@@ -4,12 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-claudebox is a tool that runs Claude Code with full autonomy (`--dangerously-skip-permissions`) inside an isolated Docker container.
+agentbox is a tool that runs Claude Code with full autonomy (`--dangerously-skip-permissions`) inside an isolated Docker container.
 
 ## Directory Structure
 
 ```
-claudebox/
+agentbox/
 ├── Dockerfile              # OCI-compatible image definition
 ├── .dockerignore           # Files excluded from build context
 ├── entrypoint.sh           # Container entrypoint (sandbox awareness, venv activation)
@@ -17,8 +17,8 @@ claudebox/
 ├── uninstall.sh            # Standalone uninstaller
 ├── style.sh                # Canonical terminal styling library for repo + installed CLI
 ├── scripts/
-│   ├── claudebox-dev.sh        # Dev CLI (build/kill/update)
-│   ├── claudebox-template.sh   # Standalone script template
+│   ├── agentbox-dev.sh        # Dev CLI (build/kill/update)
+│   ├── agentbox-template.sh   # Standalone script template
 │   ├── install-claude-code.sh  # Claude Code installer
 │   ├── repo-common.sh          # Shared host-side helpers for repo scripts
 │   └── seccomp.json            # Syscall filtering profile
@@ -39,54 +39,54 @@ claudebox/
 ## Commands
 
 ```bash
-# Install (builds image + installs script to ~/.claudebox/bin/)
+# Install (builds image + installs script to ~/.agentbox/bin/)
 ./install.sh
 
 # Uninstall (removes image, scripts, PATH entry)
 ./uninstall.sh
 
 # Build/rebuild the container image (dev convenience)
-./scripts/claudebox-dev.sh build
+./scripts/agentbox-dev.sh build
 
 # Force stop running containers
-./scripts/claudebox-dev.sh kill
+./scripts/agentbox-dev.sh kill
 
 # Pull latest + rebuild
-./scripts/claudebox-dev.sh update
+./scripts/agentbox-dev.sh update
 ```
 
 ## Usage
 
-After installation, the `claudebox` command accepts the following arguments:
+After installation, the `agentbox` command accepts the following arguments:
 
 ```bash
 # Run Claude Code in the sandbox (interactive mode)
-claudebox
+agentbox
 
 # Non-interactive print mode: run a prompt and exit
-claudebox -p "explain this code"
+agentbox -p "explain this code"
 
 # Pipe input to print mode
-cat file.txt | claudebox -p "summarize this"
+cat file.txt | agentbox -p "summarize this"
 
 # Drop into a bash shell to inspect the sandbox environment
-claudebox shell
+agentbox shell
 
 # Trust the current project for networked Claude credentials
-claudebox trust
-claudebox trust --list
-claudebox untrust
+agentbox trust
+agentbox trust --list
+agentbox untrust
 
 # Mount all host paths as read-only (workspace, config, extra mounts)
-claudebox --readonly
+agentbox --readonly
 
 # Allow a reviewed repo-controlled project Dockerfile for this launch
-claudebox --allow-project-dockerfile
+agentbox --allow-project-dockerfile
 ```
 
 ## Per-Project Configuration
 
-Projects can define named profiles via `.claudebox.json` in the project root:
+Projects can define named profiles via `.agentbox.json` in the project root:
 
 ```json
 {
@@ -114,7 +114,7 @@ Projects can define named profiles via `.claudebox.json` in the project root:
 - `ports[].host` (required): Host port number (1-65535)
 - `ports[].container` (required): Container port number (1-65535)
 - `network` (optional): Docker network mode — `"bridge"` (default) or `"none"` for full isolation
-- `audit_log` (optional): If `true`, enables session audit logging to `~/.claudebox/logs/` (default: `false`)
+- `audit_log` (optional): If `true`, enables session audit logging to `~/.agentbox/logs/` (default: `false`)
 - `cpu` (optional): CPU limit string (e.g., `"4"`) — maps to `docker --cpus`
 - `memory` (optional): Memory limit string (e.g., `"8g"`) — maps to `docker --memory`
 - `pids_limit` (optional): Max number of processes (e.g., `256`) — maps to `docker --pids-limit` (default: `256`)
@@ -123,8 +123,8 @@ Projects can define named profiles via `.claudebox.json` in the project root:
 
 **Requirements:**
 - `jq` must be installed for config parsing (`brew install jq`)
-- If `.claudebox.json` exists and `jq` is missing, claudebox exits instead of skipping profile security settings
-- If config is invalid, claudebox exits with an error
+- If `.agentbox.json` exists and `jq` is missing, agentbox exits instead of skipping profile security settings
+- If config is invalid, agentbox exits with an error
 
 **Path behavior:** The working directory is mounted at its canonical path (e.g., `/Users/foo/project` inside and outside). Any symlink hop in the working directory or an extra mount source is rejected, so use canonical paths directly. Sensitive host paths, hidden direct children under `$HOME`, and parent paths that would expose them are blocked.
 
@@ -136,10 +136,10 @@ Projects can define named profiles via `.claudebox.json` in the project root:
 
 **Usage:**
 ```bash
-claudebox --profile dev      # Use specific profile
-claudebox -P prod            # Short form (uppercase -P)
-claudebox                    # Interactive prompt
-claudebox -P dev -p "run tests"  # Profile + print mode
+agentbox --profile dev      # Use specific profile
+agentbox -P prod            # Short form (uppercase -P)
+agentbox                    # Interactive prompt
+agentbox -P dev -p "run tests"  # Profile + print mode
 ```
 
 ## Architecture
@@ -147,8 +147,8 @@ claudebox -P dev -p "run tests"  # Profile + print mode
 The project consists of shell scripts that wrap Docker:
 
 - **Dockerfile** - Debian slim image with Claude Code binary installed to `/opt/claude-code/`, entry point runs `claude --dangerously-skip-permissions`
-- **scripts/claudebox-dev.sh** - Dev CLI with build, kill, and update commands (delegates install/uninstall)
-- **scripts/claudebox-template.sh** - Template for the installed standalone script
+- **scripts/agentbox-dev.sh** - Dev CLI with build, kill, and update commands (delegates install/uninstall)
+- **scripts/agentbox-template.sh** - Template for the installed standalone script
 - **style.sh** - Single source of truth for terminal styling used by repo scripts and copied into the installed CLI
 - **scripts/repo-common.sh** - Shared host-side helper functions used by repo-only install/dev flows
 
@@ -157,8 +157,8 @@ The project consists of shell scripts that wrap Docker:
 1. **Binary location**: Claude Code is installed to `/opt/claude-code/` (not `~/.claude/`) to avoid collision with the config volume mount at `~/.claude/`. A symlink at `~/.local/bin/claude` points to the binary to satisfy Claude Code's native install detection.
 
 2. **Persisted state**: Two paths are mounted from the host:
-   - `~/.claudebox/claude-config` → `/home/claude/.claude` (credentials, cache, settings)
-   - `~/.claudebox/.claude.json` → `/home/claude/.claude.json` (session state)
+   - `~/.agentbox/claude-config` → `/home/claude/.claude` (credentials, cache, settings)
+   - `~/.agentbox/.claude.json` → `/home/claude/.claude.json` (session state)
 
 3. **Environment variables** (set in Dockerfile):
    - `NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt` - Uses system CA certs (Claude Code's bundled certs may be incomplete)

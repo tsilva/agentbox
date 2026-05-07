@@ -1,5 +1,5 @@
 # =============================================================================
-# claudebox Dockerfile
+# agentbox Dockerfile
 # Runs Claude Code with full autonomy inside an isolated container.
 # =============================================================================
 
@@ -8,7 +8,7 @@
 FROM debian:stable-slim
 
 # --- OCI Metadata ---
-LABEL org.opencontainers.image.title="claudebox" \
+LABEL org.opencontainers.image.title="agentbox" \
       org.opencontainers.image.description="Claude Code in an isolated container"
 
 # --- System Dependencies ---

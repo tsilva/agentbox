@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# smoke-test.sh - Basic smoke tests for claudebox
+# smoke-test.sh - Basic smoke tests for agentbox
 #
 
 # Abort on any error
@@ -14,7 +14,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=lib/test-helpers.sh
 source "$SCRIPT_DIR/lib/test-helpers.sh"
 
-echo "=== claudebox smoke tests ==="
+echo "=== agentbox smoke tests ==="
 echo ""
 
 # --- Test 1: Shell scripts pass bash -n syntax check ---
@@ -36,21 +36,21 @@ echo "--- Docker build ---"
 # Check both that the docker CLI exists and the daemon is running
 if command -v docker &>/dev/null && docker info &>/dev/null; then
   # Build a test image tagged separately to avoid clobbering the real one
-  if docker build -t claudebox-test "$REPO_ROOT" &>/dev/null; then
+  if docker build -t agentbox-test "$REPO_ROOT" &>/dev/null; then
     pass "Docker image builds successfully"
 
     # --- Test 3: Claude binary is accessible in container ---
     # Runs --version to verify the entrypoint and binary work end-to-end
     echo ""
     echo "--- Container checks ---"
-    if docker run --rm claudebox-test --version &>/dev/null; then
+    if docker run --rm agentbox-test --version &>/dev/null; then
       pass "Claude binary accessible in container"
     else
       fail "Claude binary not accessible in container"
     fi
 
     # Cleanup: remove the test image to avoid leaving artifacts
-    docker image rm claudebox-test &>/dev/null || true
+    docker image rm agentbox-test &>/dev/null || true
   else
     fail "Docker image build failed"
   fi
@@ -62,8 +62,8 @@ fi
 # Simulates what do_install() does: replace placeholders with real values
 echo ""
 echo "--- Template validation ---"
-template_content=$(sed 's|PLACEHOLDER_IMAGE_NAME|claudebox|g' \
-  "$REPO_ROOT/scripts/claudebox-template.sh")
+template_content=$(sed 's|PLACEHOLDER_IMAGE_NAME|agentbox|g' \
+  "$REPO_ROOT/scripts/agentbox-template.sh")
 # Pipe the substituted template through bash -n to validate syntax
 if echo "$template_content" | bash -n 2>/dev/null; then
   pass "Template with substituted placeholders is valid bash"

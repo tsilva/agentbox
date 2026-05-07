@@ -49,5 +49,5 @@ logs/
 
 # Project-specific rules
 *.tape
-.claudebox.json
+.agentbox.json
 logs

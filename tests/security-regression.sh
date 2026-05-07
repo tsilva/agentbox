@@ -19,11 +19,11 @@ echo "=== Security Regression Tests ==="
 echo ""
 
 # These tests use the template directly with --dry-run to inspect the generated command
-TEMPLATE="$REPO_ROOT/scripts/claudebox-template.sh"
+TEMPLATE="$REPO_ROOT/scripts/agentbox-template.sh"
 
 # Create a processed version of the template with placeholders replaced
 PROCESSED_TEMPLATE=$(mktemp)
-sed 's|PLACEHOLDER_IMAGE_NAME|claudebox|g' \
+sed 's|PLACEHOLDER_IMAGE_NAME|agentbox|g' \
     "$TEMPLATE" > "$PROCESSED_TEMPLATE"
 chmod +x "$PROCESSED_TEMPLATE"
 
@@ -34,10 +34,10 @@ REAL_DOCKER_HOST="${DOCKER_HOST:-}"
 setup_fake_home() {
   LAST_FAKE_HOME=$(mktemp -d)
   FAKE_HOMES+=("$LAST_FAKE_HOME")
-  mkdir -p "$LAST_FAKE_HOME/.claudebox"
-  cp "$REPO_ROOT/scripts/seccomp.json" "$LAST_FAKE_HOME/.claudebox/seccomp.json"
-  cp "$REPO_ROOT/entrypoint.sh" "$LAST_FAKE_HOME/.claudebox/entrypoint.sh"
-  chmod +x "$LAST_FAKE_HOME/.claudebox/entrypoint.sh"
+  mkdir -p "$LAST_FAKE_HOME/.agentbox"
+  cp "$REPO_ROOT/scripts/seccomp.json" "$LAST_FAKE_HOME/.agentbox/seccomp.json"
+  cp "$REPO_ROOT/entrypoint.sh" "$LAST_FAKE_HOME/.agentbox/entrypoint.sh"
+  chmod +x "$LAST_FAKE_HOME/.agentbox/entrypoint.sh"
 }
 
 # Cleanup on exit
@@ -53,10 +53,10 @@ cleanup() {
 trap cleanup EXIT
 
 # Ensure the seccomp profile is installed for all tests
-mkdir -p ~/.claudebox
-cp "$REPO_ROOT/scripts/seccomp.json" ~/.claudebox/seccomp.json
-cp "$REPO_ROOT/entrypoint.sh" ~/.claudebox/entrypoint.sh
-chmod +x ~/.claudebox/entrypoint.sh
+mkdir -p ~/.agentbox
+cp "$REPO_ROOT/scripts/seccomp.json" ~/.agentbox/seccomp.json
+cp "$REPO_ROOT/entrypoint.sh" ~/.agentbox/entrypoint.sh
+chmod +x ~/.agentbox/entrypoint.sh
 
 # --- Test: Critical security flags are present ---
 echo "--- Critical Security Flags ---"
@@ -123,7 +123,7 @@ setup_test_dir
 git init -q
 
 # Create a config with ports
-cat > .claudebox.json << 'EOF'
+cat > .agentbox.json << 'EOF'
 {
   "dev": {
     "ports": [
@@ -153,7 +153,7 @@ setup_test_dir
 git init -q
 
 # Test that "host" network mode is rejected (would bypass network isolation)
-cat > .claudebox.json << 'EOF'
+cat > .agentbox.json << 'EOF'
 {
   "dev": {
     "network": "host"
@@ -165,7 +165,7 @@ output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
 assert_contains "$output" "Unsupported network mode" "host network rejected"
 
 # Test that only bridge and none are allowed
-cat > .claudebox.json << 'EOF'
+cat > .agentbox.json << 'EOF'
 {
   "dev": {
     "network": "bridge"
@@ -177,7 +177,7 @@ output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
 # Should not error for bridge
 assert_not_contains "$output" "Unsupported network mode" "bridge network allowed"
 
-cat > .claudebox.json << 'EOF'
+cat > .agentbox.json << 'EOF'
 {
   "dev": {
     "network": "none"
@@ -198,11 +198,11 @@ require_docker
 require_image
 
 # Verify the container runs as UID 1000 (non-root)
-uid=$(docker run --rm --entrypoint /bin/bash claudebox -c "id -u")
+uid=$(docker run --rm --entrypoint /bin/bash agentbox -c "id -u")
 assert_equals "$uid" "1000" "container runs as UID 1000"
 
 # Verify the user is not root
-username=$(docker run --rm --entrypoint /bin/bash claudebox -c "whoami")
+username=$(docker run --rm --entrypoint /bin/bash agentbox -c "whoami")
 assert_not_contains "$username" "root" "container user is not root"
 
 # --- Test: Repo-controlled virtualenv activation is not auto-sourced ---
@@ -222,7 +222,7 @@ chmod +x .venv/bin/activate
 output=$(docker run --rm \
   -v "$PWD":"$PWD" \
   -w "$PWD" \
-  claudebox --version 2>&1 || true)
+  agentbox --version 2>&1 || true)
 
 assert_not_contains "$output" "MALICIOUS_VENV_ACTIVATE_RAN" "repo activate script output is absent"
 
@@ -246,10 +246,10 @@ output=$("$PROCESSED_TEMPLATE" --dry-run --readonly 2>&1)
 
 # The working directory should have :ro suffix in readonly mode
 assert_matches "$output" "$(pwd):[^:]*:ro" "workdir is read-only in readonly mode"
-assert_contains "$output" "$HOME/.claudebox/claude-config:/home/claude/.claude:ro" "sandbox Claude config is read-only in readonly mode"
-assert_contains "$output" "$HOME/.claudebox/claude-dotconfig:/home/claude/.config:ro" "sandbox dotconfig is read-only in readonly mode"
-assert_contains "$output" "$HOME/.claudebox/.claude.json:/home/claude/.claude.json:ro" "sandbox state is read-only in readonly mode"
-assert_contains "$output" "$HOME/.claudebox/plugins:/home/claude/.claude/plugins:ro" "sandbox plugins are read-only in readonly mode"
+assert_contains "$output" "$HOME/.agentbox/claude-config:/home/claude/.claude:ro" "sandbox Claude config is read-only in readonly mode"
+assert_contains "$output" "$HOME/.agentbox/claude-dotconfig:/home/claude/.config:ro" "sandbox dotconfig is read-only in readonly mode"
+assert_contains "$output" "$HOME/.agentbox/.claude.json:/home/claude/.claude.json:ro" "sandbox state is read-only in readonly mode"
+assert_contains "$output" "$HOME/.agentbox/plugins:/home/claude/.claude/plugins:ro" "sandbox plugins are read-only in readonly mode"
 
 require_docker
 require_image
@@ -268,17 +268,17 @@ cat > "$LAST_FAKE_HOME/.claude/.credentials.json" << 'EOF'
 EOF
 printf '%s\n' 'host-plugin' > "$LAST_FAKE_HOME/.claude/plugins/cache/example-market/example-plugin/plugin.js"
 
-cat > .claudebox.json << 'EOF'
+cat > .agentbox.json << 'EOF'
 {"safe":{"network":"none"}}
 EOF
 
-cat > .claudebox.Dockerfile << 'EOF'
-FROM claudebox
+cat > .agentbox.Dockerfile << 'EOF'
+FROM agentbox
 USER root
 RUN cat <<'SCRIPT' > /opt/claude-code/claude
 #!/bin/bash
 set -euo pipefail
-grep -q "Sandbox Environment (claudebox)" /home/claude/.claude/CLAUDE.md
+grep -q "Sandbox Environment (agentbox)" /home/claude/.claude/CLAUDE.md
 if (printf '%s\n' '{"persisted":true}' > /home/claude/.claude.json) 2>/tmp/state.err; then
   echo "sandbox state unexpectedly writable" >&2
   exit 1
@@ -303,8 +303,8 @@ else
 fi
 assert_equals "$readonly_exit" "0" "readonly startup exits successfully"
 assert_contains "$output" "stub claude ran" "readonly startup reaches Claude"
-assert_equals "$(tr -d '\n' < "$LAST_FAKE_HOME/.claudebox/.claude.json")" '{"persisted":false}' "readonly keeps sandbox state unchanged"
-assert_equals "$(tr -d '\n' < "$LAST_FAKE_HOME/.claudebox/plugins/cache/example-market/example-plugin/plugin.js")" 'host-plugin' "readonly keeps sandbox plugins unchanged"
+assert_equals "$(tr -d '\n' < "$LAST_FAKE_HOME/.agentbox/.claude.json")" '{"persisted":false}' "readonly keeps sandbox state unchanged"
+assert_equals "$(tr -d '\n' < "$LAST_FAKE_HOME/.agentbox/plugins/cache/example-market/example-plugin/plugin.js")" 'host-plugin' "readonly keeps sandbox plugins unchanged"
 
 teardown_test_dir
 
@@ -315,8 +315,8 @@ echo "--- Project Dockerfile Opt-In ---"
 setup_test_dir
 git init -q
 
-cat > .claudebox.Dockerfile << 'EOF'
-FROM claudebox
+cat > .agentbox.Dockerfile << 'EOF'
+FROM agentbox
 RUN echo "SHOULD_NOT_BUILD" >&2
 RUN exit 99
 EOF
@@ -332,7 +332,7 @@ if [ "$dry_run_exit" -ne 0 ]; then
 else
   fail "project Dockerfile without opt-in should fail"
 fi
-assert_contains "$output" "Refusing to build repo-controlled .claudebox.Dockerfile" "project Dockerfile requires opt-in"
+assert_contains "$output" "Refusing to build repo-controlled .agentbox.Dockerfile" "project Dockerfile requires opt-in"
 assert_not_contains "$output" "Building per-project image" "dry-run does not build project image"
 
 dry_run_exit=0
@@ -346,7 +346,7 @@ assert_contains "$output" "Per-project image build allowed by --allow-project-do
 assert_contains "$output" "--user 1000:1000" "project image runs as UID 1000"
 assert_contains "$output" "--entrypoint /bin/bash" "project image uses bash entrypoint"
 assert_contains "$output" "/home/claude/entrypoint.sh" "project image runs trusted entrypoint"
-assert_contains "$output" "claudebox-project" "dry-run references project image after opt-in"
+assert_contains "$output" "agentbox-project" "dry-run references project image after opt-in"
 
 teardown_test_dir
 
@@ -364,11 +364,11 @@ mkdir -p "$LAST_FAKE_HOME/.claude"
 cat > "$LAST_FAKE_HOME/.claude/.credentials.json" << 'EOF'
 {"claudeAiOauth":{"accessToken":"host-access","refreshToken":"host-refresh","expiresAt":123}}
 EOF
-cat > .claudebox.json << 'EOF'
+cat > .agentbox.json << 'EOF'
 {"offline":{"network":"none"}}
 EOF
-cat > .claudebox.Dockerfile << 'EOF'
-FROM claudebox
+cat > .agentbox.Dockerfile << 'EOF'
+FROM agentbox
 USER root
 RUN cat <<'SCRIPT' > /opt/claude-code/claude
 #!/bin/bash
@@ -405,7 +405,7 @@ echo "--- io_uring Seccomp ---"
 
 io_uring_result=$(docker run --rm \
   --security-opt "seccomp=$REPO_ROOT/scripts/seccomp.json" \
-  --entrypoint python3 claudebox -c 'import ctypes, os; libc=ctypes.CDLL(None, use_errno=True); rc=libc.syscall(425, 1, 0); print("errno=%s" % ctypes.get_errno() if rc == -1 else "allowed")' 2>&1 || true)
+  --entrypoint python3 agentbox -c 'import ctypes, os; libc=ctypes.CDLL(None, use_errno=True); rc=libc.syscall(425, 1, 0); print("errno=%s" % ctypes.get_errno() if rc == -1 else "allowed")' 2>&1 || true)
 assert_contains "$io_uring_result" "errno=1" "io_uring_setup blocked with EPERM"
 
 # --- Summary ---
