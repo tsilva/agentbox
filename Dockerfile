@@ -1,6 +1,6 @@
 # =============================================================================
 # agentbox Dockerfile
-# Runs Claude Code with full autonomy inside an isolated container.
+# Runs coding agents with full autonomy inside an isolated container.
 # =============================================================================
 
 # --- Base Image ---
@@ -9,17 +9,19 @@ FROM debian:stable-slim
 
 # --- OCI Metadata ---
 LABEL org.opencontainers.image.title="agentbox" \
-      org.opencontainers.image.description="Claude Code in an isolated container"
+      org.opencontainers.image.description="Claude Code and Codex CLI in an isolated container"
 
 # --- System Dependencies ---
 # Install required packages in a single layer to minimize image size:
 #   curl             — download Claude Code binary and version manifest
-#   git              — Claude Code uses git for project context and diffs
+#   git              — coding agents use git for project context and diffs
 #   jq               — parse JSON manifests (checksum verification) and project configs
 #   netcat-openbsd   — TCP connectivity for desktop notification support (port 19223)
 #   python3          — required by many Claude Code tool-use workflows
 #   python3-venv     — create isolated Python environments
 #   python-is-python3 — symlinks `python` → `python3` for compatibility
+#   ripgrep          — used by Codex and commonly expected by coding workflows
+#   tar              — extract Codex CLI release archives
 # The apt cache is removed after install to keep the layer small.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
@@ -29,21 +31,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-venv \
     python-is-python3 \
+    ripgrep \
+    tar \
     && rm -rf /var/lib/apt/lists/*
 
-# --- User Setup + Claude Code + Python Tooling ---
+# --- User Setup + Agent CLIs + Python Tooling ---
 # Create a non-root user "claude". Claude Code refuses to run
 # --dangerously-skip-permissions as root, so a regular user is required.
 # On macOS/Docker Desktop, UID mapping is handled by the VM layer.
 RUN useradd -m -s /bin/bash claude && \
-    mkdir -p /opt/claude-code /opt/uv /home/claude/.local/bin && \
-    chown -R claude:claude /opt/claude-code /opt/uv /home/claude/.local
+    mkdir -p /opt/claude-code /opt/codex /opt/uv /home/claude/.local/bin && \
+    chown -R claude:claude /opt/claude-code /opt/codex /opt/uv /home/claude/.local
 
 # Switch to non-root user for all subsequent commands.
 USER claude
 
 # --- Environment Variables ---
-# PATH: include Claude Code binary location and user-local bin (uv, symlink).
+# PATH: include agent binary locations and user-local bin (uv, symlinks).
 # NODE_OPTIONS: force IPv4-first DNS resolution to avoid IPv6 routing failures
 #   common inside Docker bridge networks.
 # NODE_EXTRA_CA_CERTS: use the system CA certificate bundle instead of
@@ -51,7 +55,7 @@ USER claude
 # PYTHONDONTWRITEBYTECODE: skip .pyc file generation (unnecessary in containers).
 # PYTHONUNBUFFERED: flush stdout/stderr immediately for real-time log output.
 # NOTE: PATH must be set early so uv is available for subsequent RUN commands.
-ENV PATH="/home/claude/.local/bin:/opt/uv/bin:/opt/claude-code:$PATH" \
+ENV PATH="/home/claude/.local/bin:/opt/uv/bin:/opt/claude-code:/opt/codex:$PATH" \
     UV_INSTALL_DIR=/opt/uv/bin \
     NODE_OPTIONS="--dns-result-order=ipv4first" \
     NODE_EXTRA_CA_CERTS="/etc/ssl/certs/ca-certificates.crt" \
@@ -78,22 +82,22 @@ WORKDIR /workspace
 
 # --- Entrypoint ---
 # Copy the entrypoint script. The entrypoint handles argument parsing
-# (e.g., "shell" for debug access) and launches Claude Code with
-# --dangerously-skip-permissions.
+# (e.g., "shell" for debug access) and launches the selected agent runtime.
 COPY --chmod=755 --chown=claude:claude entrypoint.sh /home/claude/entrypoint.sh
 
 ENTRYPOINT ["/home/claude/entrypoint.sh"]
 
-# --- Claude Code Binary ---
-# Download the Claude Code standalone binary from Google Cloud Storage.
+# --- Agent Binaries ---
+# Download the Claude Code standalone binary from Google Cloud Storage and
+# the Codex CLI standalone binary from OpenAI's GitHub releases.
 # The install script handles version detection, architecture mapping,
 # binary download, and SHA256 checksum verification.
 # CACHE_BUST: defaults to "stable" so regular builds use Docker cache.
 # Override with a timestamp (e.g., --build-arg CACHE_BUST=$(date +%s))
-# to force re-downloading the latest Claude Code binary.
+# to force re-downloading the latest agent binaries.
 # NOTE: This block is intentionally last so that cache-busting only
-# invalidates the Claude Code download layer (~100MB), not the
+# invalidates the agent download layer, not the
 # uv/pytest/entrypoint layers above which rarely change.
 ARG CACHE_BUST=stable
-COPY --chmod=755 --chown=claude:claude scripts/install-claude-code.sh /tmp/install-claude-code.sh
-RUN /tmp/install-claude-code.sh && rm /tmp/install-claude-code.sh
+COPY --chmod=755 --chown=claude:claude scripts/install-agent-clis.sh /tmp/install-agent-clis.sh
+RUN /tmp/install-agent-clis.sh && rm /tmp/install-agent-clis.sh

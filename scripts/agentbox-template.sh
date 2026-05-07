@@ -88,6 +88,9 @@ HOST_CLAUDE_DIR="$HOME/.claude"
 HOST_CLAUDE_STATE_FILE="$HOME/.claude.json"
 HOST_CREDENTIALS_FILE="$HOST_CLAUDE_DIR/.credentials.json"
 HOST_KEYCHAIN_SERVICE="Claude Code-credentials"
+HOST_CODEX_DIR="$HOME/.codex"
+HOST_CODEX_AUTH_FILE="$HOST_CODEX_DIR/auth.json"
+HOST_CODEX_CONFIG_FILE="$HOST_CODEX_DIR/config.toml"
 AGENTBOX_STATE_DIR="$HOME/.agentbox"
 TRUSTED_PROJECTS_DIR="$AGENTBOX_STATE_DIR/trusted-projects"
 TRUSTED_ENTRYPOINT_FILE="$AGENTBOX_STATE_DIR/entrypoint.sh"
@@ -96,6 +99,8 @@ SANDBOX_DOTCONFIG_DIR="$AGENTBOX_STATE_DIR/claude-dotconfig"
 SANDBOX_PLUGINS_DIR="$AGENTBOX_STATE_DIR/plugins"
 SANDBOX_CLAUDE_STATE_FILE="$AGENTBOX_STATE_DIR/.claude.json"
 SANDBOX_CREDENTIALS_FILE="$SANDBOX_CLAUDE_DIR/.credentials.json"
+SANDBOX_CODEX_DIR="$AGENTBOX_STATE_DIR/codex-config"
+SANDBOX_CODEX_AUTH_FILE="$SANDBOX_CODEX_DIR/auth.json"
 KEYCHAIN_AUTH_ERROR=""
 HOST_KEYCHAIN_CREDENTIALS_JSON=""
 
@@ -105,6 +110,11 @@ mkdir -p "$SANDBOX_PLUGINS_DIR"
 mkdir -p "$SANDBOX_CLAUDE_DIR/plugins"
 mkdir -p "$SANDBOX_CLAUDE_DIR/plans"
 mkdir -p "$SANDBOX_CLAUDE_DIR/runtime"
+mkdir -p "$SANDBOX_CODEX_DIR"
+mkdir -p "$SANDBOX_CODEX_DIR/runtime"
+mkdir -p "$SANDBOX_CODEX_DIR/sessions"
+mkdir -p "$SANDBOX_CODEX_DIR/log"
+mkdir -p "$SANDBOX_CODEX_DIR/tmp"
 
 sync_directory() {
   local src="$1"
@@ -222,6 +232,33 @@ require_host_auth() {
   exit 1
 }
 
+codex_auth_available() {
+  [ -s "$HOST_CODEX_AUTH_FILE" ] || [ -n "${OPENAI_API_KEY:-}" ]
+}
+
+require_codex_auth() {
+  codex_auth_available && return 0
+
+  error_block "No host Codex login detected." \
+    "Run 'codex login' on the host, or export OPENAI_API_KEY before starting agentbox with --codex."
+  exit 1
+}
+
+require_runtime_auth() {
+  case "$agent_runtime" in
+    claude)
+      require_host_auth
+      ;;
+    codex)
+      require_codex_auth
+      ;;
+    *)
+      error "Unsupported runtime '$agent_runtime' (allowed: claude, codex)"
+      exit 1
+      ;;
+  esac
+}
+
 sync_host_auth_state() {
   # Host ~/.claude.json carries the current account and auth metadata. Copy it
   # into the sandbox mirror so each container launch starts from fresh host state.
@@ -244,9 +281,30 @@ sync_host_auth_state() {
   fi
 }
 
+sync_host_codex_state() {
+  if [ -s "$HOST_CODEX_AUTH_FILE" ]; then
+    cp "$HOST_CODEX_AUTH_FILE" "$SANDBOX_CODEX_AUTH_FILE" 2>/dev/null || true
+    chmod 600 "$SANDBOX_CODEX_AUTH_FILE" 2>/dev/null || true
+  else
+    rm -f "$SANDBOX_CODEX_AUTH_FILE" 2>/dev/null || true
+  fi
+
+  if [ -s "$HOST_CODEX_CONFIG_FILE" ]; then
+    cp "$HOST_CODEX_CONFIG_FILE" "$SANDBOX_CODEX_DIR/config.toml" 2>/dev/null || true
+    chmod 600 "$SANDBOX_CODEX_DIR/config.toml" 2>/dev/null || true
+  elif [ ! -e "$SANDBOX_CODEX_DIR/config.toml" ]; then
+    : > "$SANDBOX_CODEX_DIR/config.toml"
+  fi
+}
+
 ensure_runtime_claude_md_link() {
   rm -rf "$SANDBOX_CLAUDE_DIR/CLAUDE.md"
   ln -s "runtime/CLAUDE.md" "$SANDBOX_CLAUDE_DIR/CLAUDE.md"
+}
+
+ensure_runtime_codex_agents_link() {
+  rm -rf "$SANDBOX_CODEX_DIR/AGENTS.md"
+  ln -s "runtime/AGENTS.md" "$SANDBOX_CODEX_DIR/AGENTS.md"
 }
 
 sync_host_plugins() {
@@ -266,12 +324,20 @@ sync_host_plugins() {
 }
 
 prepare_sandbox_state() {
-  sync_host_auth_state
+  case "$agent_runtime" in
+    claude)
+      sync_host_auth_state
+      ;;
+    codex)
+      sync_host_codex_state
+      ;;
+  esac
   prepare_sandbox_non_auth_state
 }
 
 prepare_sandbox_non_auth_state() {
   ensure_runtime_claude_md_link
+  ensure_runtime_codex_agents_link
   sync_host_plugins
   # Claude Code expects valid JSON in the mirrored state file.
   [ -s "$SANDBOX_CLAUDE_STATE_FILE" ] || echo '{}' > "$SANDBOX_CLAUDE_STATE_FILE"
@@ -285,13 +351,15 @@ extra_mounts_info=""   # Human-readable mount info for sandbox awareness
 extra_ports=()         # Additional -p ports from profile config
 workdir="$(pwd)"       # Mount the current directory as the working directory
 profile_name=""        # Selected profile from .agentbox.json
+agent_runtime=""       # Selected agent runtime: claude or codex
 cmd_args=()            # Arguments forwarded to Claude Code inside the container
 first_cmd=""           # First non-flag argument (used to detect "shell" command)
 skip_next=false        # Flag to skip the next argument (used for --profile value)
+runtime_skip_next=false # Flag to skip the next argument (used for --runtime value)
 dry_run=false          # When true, print the docker command instead of running it
 audit_log=false        # When true, keep named container and dump logs on exit
 readonly_mode=false    # When true, mount all host paths as read-only
-print_mode=false       # When true, Claude is in -p/--print mode (no TTY needed)
+print_mode=false       # When true, the runtime is in non-interactive mode (no TTY needed)
 allow_project_dockerfile=false  # When true, permit trusted per-project image builds
 
 # Extract our flags (--profile, --dry-run), pass everything else to Claude
@@ -300,9 +368,22 @@ for arg in "$@"; do
     # This arg is the value for --profile/-P
     profile_name="$arg"
     skip_next=false
+  elif [ "$runtime_skip_next" = true ]; then
+    # This arg is the value for --runtime
+    agent_runtime="$arg"
+    runtime_skip_next=false
   elif [ "$arg" = "--profile" ] || [ "$arg" = "-P" ]; then
     # Next arg will be the profile name
     skip_next=true
+  elif [ "$arg" = "--runtime" ]; then
+    # Next arg will be the runtime name
+    runtime_skip_next=true
+  elif [ "$arg" = "--codex" ]; then
+    # Shortcut for --runtime codex
+    agent_runtime="codex"
+  elif [ "$arg" = "--claude" ]; then
+    # Explicitly select the default Claude runtime
+    agent_runtime="claude"
   elif [ "$arg" = "--dry-run" ]; then
     # Enable dry-run mode: print command without executing
     dry_run=true
@@ -316,10 +397,45 @@ for arg in "$@"; do
     # Track the first non-flag arg to detect the "shell" command
     [ -z "$first_cmd" ] && first_cmd="$arg"
     # Detect -p/--print for TTY allocation (print mode runs non-interactively)
-    [ "$arg" = "-p" ] || [ "$arg" = "--print" ] && print_mode=true
+    if [ "$arg" = "-p" ] || [ "$arg" = "--print" ]; then
+      print_mode=true
+    fi
     cmd_args+=("$arg")
   fi
 done
+
+if [ "$skip_next" = true ]; then
+  error "--profile requires a value"
+  exit 1
+fi
+if [ "$runtime_skip_next" = true ]; then
+  error "--runtime requires a value"
+  exit 1
+fi
+if [ -n "$agent_runtime" ] && [[ ! "$agent_runtime" =~ ^(claude|codex)$ ]]; then
+  error "Unsupported runtime '$agent_runtime' (allowed: claude, codex)"
+  exit 1
+fi
+if [ -z "$agent_runtime" ] && [[ ! "$first_cmd" =~ ^(trust|untrust|update)$ ]]; then
+  error_block "No agent runtime selected." \
+    "Choose one explicitly with --claude, --codex, or --runtime <claude|codex>."
+  exit 1
+fi
+
+# Codex uses `codex exec` for non-interactive prompts. Preserve the familiar
+# agentbox/Claude `-p "prompt"` shortcut when the Codex runtime is selected.
+if [ "$agent_runtime" = "codex" ] && { [ "${cmd_args[0]:-}" = "-p" ] || [ "${cmd_args[0]:-}" = "--print" ]; }; then
+  codex_prompt="${cmd_args[1]:-}"
+  if [ -z "$codex_prompt" ]; then
+    error "--codex -p requires a prompt"
+    exit 1
+  fi
+  cmd_args=(exec "$codex_prompt" "${cmd_args[@]:2}")
+  first_cmd="exec"
+  print_mode=true
+elif [ "$agent_runtime" = "codex" ] && { [ "$first_cmd" = "exec" ] || [ "$first_cmd" = "review" ]; }; then
+  print_mode=true
+fi
 
 # Handle "shell" command: override entrypoint to bash for interactive inspection
 if [ "$first_cmd" = "shell" ]; then
@@ -376,6 +492,8 @@ check_version_staleness() {
   local installed_version latest_version cache_file cache_age now file_mtime
   local version_file="$HOME/.agentbox/version"
   cache_file="$HOME/.agentbox/.latest-version"
+
+  command -v date >/dev/null 2>&1 || return 0
 
   # No version file means pre-version-tracking build — skip silently
   [ -f "$version_file" ] || return 0
@@ -434,8 +552,8 @@ BLOCKED_PATHS=(
   "$HOME/.cargo/credentials" "$HOME/.cargo/credentials.toml" "$HOME/.gem/credentials"
   "$HOME/.m2/settings.xml" "$HOME/.gradle/gradle.properties"
   "$HOME/Library" "$HOME/.1password" "$HOME/.bitwarden" "$HOME/.config/Bitwarden"
-  # Claude-specific (already managed)
-  "$HOME/.claude" "$HOME/.agentbox"
+  # Agent-specific state (already managed)
+  "$HOME/.claude" "$HOME/.codex" "$HOME/.agentbox"
 )
 
 normalize_path() {
@@ -850,9 +968,11 @@ network_args=()
 # --- Auth and project trust gate ---
 # Host credentials are only mirrored after trust checks have passed.
 if [ "$dry_run" != true ]; then
-  require_host_auth
+  require_runtime_auth
   if [ "${network_mode:-bridge}" != "none" ] && ! is_project_trusted; then
-    error_block "Project is not trusted for networked Claude credentials: $workdir" \
+    runtime_label="Claude"
+    [ "$agent_runtime" = "codex" ] && runtime_label="Codex"
+    error_block "Project is not trusted for networked $runtime_label credentials: $workdir" \
       "Run 'agentbox trust' from this project directory after reviewing it, or set network: \"none\" in .agentbox.json."
     exit 1
   fi
@@ -929,6 +1049,9 @@ readonly_args=()
 if [ "$readonly_mode" = true ]; then
   ro_suffix=":ro"
   readonly_args+=(--tmpfs "/home/claude/.claude/plans:rw,nosuid,size=64m,uid=1000,gid=1000")
+  readonly_args+=(--tmpfs "/home/claude/.codex/sessions:rw,nosuid,size=64m,uid=1000,gid=1000")
+  readonly_args+=(--tmpfs "/home/claude/.codex/log:rw,nosuid,size=64m,uid=1000,gid=1000")
+  readonly_args+=(--tmpfs "/home/claude/.codex/tmp:rw,nosuid,size=64m,uid=1000,gid=1000")
   # Force all extra mounts to read-only regardless of profile config
   for i in "${!extra_mounts[@]}"; do
     [[ "${extra_mounts[$i]}" != "-v" && "${extra_mounts[$i]}" != *":ro" ]] && extra_mounts[i]+=":ro"
@@ -973,6 +1096,11 @@ else
   tty_flags=(-it)
 fi
 
+runtime_env_args=(-e "AGENTBOX_RUNTIME=$agent_runtime")
+if [ "$agent_runtime" = "codex" ] && [ -n "${OPENAI_API_KEY:-}" ]; then
+  runtime_env_args+=(-e "OPENAI_API_KEY=$OPENAI_API_KEY")
+fi
+
 # Assemble the complete docker run command as an array for safe quoting
 docker_cmd=(
   docker run ${tty_flags[@]+"${tty_flags[@]}"}
@@ -1004,6 +1132,8 @@ docker_cmd=(
   -e "AGENTBOX_PIDS_LIMIT=${profile_pids_limit:-$DEFAULT_PIDS_LIMIT}"
   -e "AGENTBOX_EXTRA_MOUNTS=${extra_mounts_info:-}"
   -e "AGENTBOX_READONLY=${readonly_mode:-false}"
+  -e "CODEX_HOME=/home/claude/.codex"
+  ${runtime_env_args[@]+"${runtime_env_args[@]}"}
   # Set the working directory inside the container to match the host
   --workdir "$workdir"
   # Mount the current project directory at the same path for path parity
@@ -1017,6 +1147,10 @@ docker_cmd=(
   -v "$SANDBOX_CLAUDE_STATE_FILE:/home/claude/.claude.json${ro_suffix}"
   # Mount sandbox plugins directory (isolated from host ~/.claude/plugins/)
   -v "$SANDBOX_PLUGINS_DIR:/home/claude/.claude/plugins${ro_suffix}"
+  # Mount the sandbox mirror of Codex state/config/auth.
+  -v "$SANDBOX_CODEX_DIR:/home/claude/.codex${ro_suffix}"
+  # Keep sandbox-awareness Codex AGENTS.md writable via tmpfs-backed runtime path.
+  --tmpfs "/home/claude/.codex/runtime:rw,nosuid,size=16m,uid=1000,gid=1000"
   # Add readonly mode tmpfs overlay (plans directory) when enabled
   ${readonly_args[@]+"${readonly_args[@]}"}
   # Add any profile-configured extra mounts, ports, and entrypoint overrides
@@ -1031,6 +1165,7 @@ docker_cmd=(
 # Print the full command for debugging instead of executing it
 if [ "$dry_run" = true ]; then
   section "dry-run" >&2
+  list_item "Runtime" "$agent_runtime" >&2
   [ -n "$profile_name" ] && list_item "Profile" "$profile_name" >&2
   [ -n "${extra_mounts_info:-}" ] && { list_item "Mounts" "" >&2; echo "$extra_mounts_info" >&2; }
   [ ${#extra_ports[@]} -gt 0 ] && list_item "Ports" "${extra_ports[*]}" >&2

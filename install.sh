@@ -160,8 +160,9 @@ do_install() {
 
   banner "Installation complete!"
   list_item "Activate" "source $shell_rc"
-  list_item "Run" "cd <your-project> && $SCRIPT_NAME"
-  list_item "Shell" "$SCRIPT_NAME shell"
+  list_item "Claude" "cd <your-project> && $SCRIPT_NAME --claude"
+  list_item "Codex" "cd <your-project> && $SCRIPT_NAME --codex"
+  list_item "Shell" "$SCRIPT_NAME --claude shell"
   echo ""
 }
 

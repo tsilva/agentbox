@@ -1,12 +1,12 @@
 <div align="center">
-  <img src="./logo.png" alt="agentbox" width="512" />
+  <img src="./logo.png" alt="agentbox" width="420" />
 
   **⚡ Full autonomy. Zero blast radius. 🛡️**
 </div>
 
-agentbox runs Claude Code with `--dangerously-skip-permissions` inside an isolated Docker container. Claude gets full autonomy inside the sandbox, while sensitive host paths, git credentials, and system files stay outside its reach.
+agentbox runs Claude Code or Codex with full autonomy inside an isolated Docker container. The coding agent can work without permission prompts inside the sandbox, while sensitive host paths, git credentials, and system files stay outside the container boundary.
 
-Use it from any project directory when you want Claude Code to work without permission prompts, but with Docker-backed filesystem, network, process, and mount boundaries.
+Use it from any project directory when you want an agent to move quickly with Docker-backed filesystem, network, process, and mount controls.
 
 ## Install
 
@@ -24,40 +24,64 @@ cd agentbox
 ./install.sh
 ```
 
-Reload your shell, or update `PATH` for the current session, then run agentbox from the project you want to sandbox:
+Reload your shell, or update `PATH` for the current session:
 
 ```bash
 export PATH="$HOME/.agentbox/bin:$PATH"
-cd /path/to/project
-agentbox trust
-agentbox
 ```
 
-If Claude Code is not logged in on the host, run `claude` outside the sandbox and complete `/login` first.
+Then run agentbox from the project you want to sandbox:
+
+```bash
+cd /path/to/project
+agentbox trust
+agentbox --claude
+```
+
+For Codex, run:
+
+```bash
+agentbox --codex
+```
+
+Host auth is required before launch. For Claude, run `claude` on the host and complete `/login`. For Codex, run `codex login` on the host or export `OPENAI_API_KEY`.
 
 ## Commands
 
 ```bash
-agentbox                                      # start Claude Code in the sandbox
-agentbox -p "explain this code"              # run a non-interactive prompt
-cat README.md | agentbox -p "summarize this" # pipe input to print mode
-agentbox shell                               # open a shell inside the sandbox
+agentbox --claude                            # start Claude Code in the sandbox
+agentbox --claude -p "explain this code"     # run Claude non-interactively
+cat README.md | agentbox --claude -p "summarize this"
+agentbox --claude shell                      # inspect the sandbox with bash
+
+agentbox --codex                             # start Codex in the sandbox
+agentbox --codex -p "explain this code"      # run Codex non-interactively
+agentbox --runtime codex exec "run tests"    # pass native Codex subcommands
 
 agentbox trust                               # trust the current canonical project path
 agentbox trust --list                        # list trusted project paths
 agentbox untrust                             # remove trust for the current project path
 
-agentbox --profile dev                       # launch with a .agentbox.json profile
-agentbox -P dev -p "run tests"               # combine profile and print mode
-agentbox --readonly                          # mount host-backed paths read-only
-agentbox --dry-run                           # print the docker run command only
-agentbox --allow-project-dockerfile          # allow a reviewed .agentbox.Dockerfile
+agentbox --claude --profile dev              # launch with a .agentbox.json profile
+agentbox --codex -P dev -p "run tests"       # combine profile and print mode
+agentbox --claude --readonly                 # mount host-backed paths read-only
+agentbox --claude --dry-run                  # print the docker run command
+agentbox --claude --allow-project-dockerfile # allow a reviewed .agentbox.Dockerfile
 agentbox update                              # update the installed script and image
+```
 
-./scripts/agentbox-dev.sh build              # rebuild the local Docker image
+Development commands from this repo:
+
+```bash
+./scripts/agentbox-dev.sh build              # build the Docker image
+./scripts/agentbox-dev.sh install            # build and install the CLI
 ./scripts/agentbox-dev.sh kill               # stop running agentbox containers
-./scripts/lint.sh                             # run shellcheck
-./tests/smoke-test.sh                         # run basic local checks
+./scripts/lint.sh                            # run shellcheck
+./tests/smoke-test.sh                        # run basic local checks
+./tests/security-regression.sh               # check docker run security flags
+./tests/isolation-test.sh                    # check container isolation behavior
+./tests/validation-test.sh                   # check config validation
+./tests/version-check-test.sh                # check update-warning behavior
 ```
 
 ## Configuration
@@ -92,10 +116,10 @@ Supported profile fields include `mounts`, `ports`, `network`, `audit_log`, `cpu
 - `jq` is required only when `.agentbox.json` exists. If it is missing, agentbox exits instead of ignoring profile security settings.
 - Project paths and extra mounts must be absolute canonical paths. Symlink hops are rejected; use `pwd -P` if needed.
 - The current project is mounted at the same canonical path inside the container. The `.git` directory is mounted read-only, and host git credentials are not available.
-- Sandbox Claude state lives under `~/.agentbox/`, including the installed CLI, mirrored Claude config, copied credentials, plugin mirrors, logs, seccomp profile, and trusted entrypoint.
-- Host auth is the source of truth. agentbox refreshes sandbox auth from `~/.claude.json` plus `~/.claude/.credentials.json` or the macOS `Claude Code-credentials` keychain item before launch.
+- Sandbox agent state lives under `~/.agentbox/`, including installed CLI files, mirrored Claude and Codex auth/config, Claude plugin mirrors, logs, seccomp profile, and the trusted entrypoint.
+- Host auth is the source of truth. agentbox refreshes sandbox auth from host Claude or Codex config before launch, or passes `OPENAI_API_KEY` through for Codex when set.
 - A project-local `.agentbox.Dockerfile` can add dependencies, but it is used only when the launch includes `--allow-project-dockerfile`.
-- `entrypoint.sh` writes a runtime `CLAUDE.md` inside the sandbox so Claude Code knows the active mounts, blocked paths, network mode, and resource limits.
+- `entrypoint.sh` writes runtime sandbox-awareness files (`CLAUDE.md` for Claude and `AGENTS.md` for Codex) so the selected agent sees the active mounts, blocked paths, network mode, and resource limits.
 - Optional desktop notifications are provided by [claude-code-notify](https://github.com/tsilva/claude-code-notify) through `host.docker.internal:19223`.
 - See [SECURITY.md](SECURITY.md) for the isolation model, known boundaries, and reporting instructions.
 

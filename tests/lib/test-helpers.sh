@@ -127,7 +127,13 @@ setup_test_dir() {
 # Clean up the test directory
 teardown_test_dir() {
   cd / || exit 1
-  [ -n "$TEST_DIR" ] && rm -rf "$TEST_DIR"
+  if [ -n "$TEST_DIR" ] && [ -e "$TEST_DIR" ]; then
+    for _ in 1 2 3; do
+      rm -rf "$TEST_DIR" 2>/dev/null && return 0
+      sleep 1
+    done
+    rm -rf "$TEST_DIR"
+  fi
 }
 
 # Print test summary and exit with appropriate code

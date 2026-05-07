@@ -64,7 +64,7 @@ echo "--- Critical Security Flags ---"
 setup_test_dir
 
 # Run dry-run to get the docker command
-output=$("$PROCESSED_TEMPLATE" --dry-run 2>&1)
+output=$("$PROCESSED_TEMPLATE" --claude --dry-run 2>&1)
 
 # Test: --cap-drop=ALL (drop all Linux capabilities)
 assert_contains "$output" "--cap-drop=ALL" "cap-drop=ALL present"
@@ -89,7 +89,7 @@ echo "--- Seccomp Profile ---"
 
 setup_test_dir
 
-output=$("$PROCESSED_TEMPLATE" --dry-run 2>&1)
+output=$("$PROCESSED_TEMPLATE" --claude --dry-run 2>&1)
 assert_matches "$output" "--security-opt seccomp=" "seccomp profile specified"
 
 teardown_test_dir
@@ -106,7 +106,7 @@ echo "test" > file.txt
 git add file.txt
 git commit -m "initial" -q
 
-output=$("$PROCESSED_TEMPLATE" --dry-run 2>&1)
+output=$("$PROCESSED_TEMPLATE" --claude --dry-run 2>&1)
 
 # The .git directory should be mounted read-only
 assert_matches "$output" "\.git[^:]*:ro" ".git mounted read-only"
@@ -134,7 +134,7 @@ cat > .agentbox.json << 'EOF'
 }
 EOF
 
-output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
+output=$("$PROCESSED_TEMPLATE" --claude --dry-run --profile dev 2>&1)
 
 # Ports MUST bind to 127.0.0.1 only
 assert_contains "$output" "127.0.0.1:8080:8080" "port 8080 binds to localhost"
@@ -161,7 +161,7 @@ cat > .agentbox.json << 'EOF'
 }
 EOF
 
-output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1 || true)
+output=$("$PROCESSED_TEMPLATE" --claude --dry-run --profile dev 2>&1 || true)
 assert_contains "$output" "Unsupported network mode" "host network rejected"
 
 # Test that only bridge and none are allowed
@@ -173,7 +173,7 @@ cat > .agentbox.json << 'EOF'
 }
 EOF
 
-output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
+output=$("$PROCESSED_TEMPLATE" --claude --dry-run --profile dev 2>&1)
 # Should not error for bridge
 assert_not_contains "$output" "Unsupported network mode" "bridge network allowed"
 
@@ -185,7 +185,7 @@ cat > .agentbox.json << 'EOF'
 }
 EOF
 
-output=$("$PROCESSED_TEMPLATE" --dry-run --profile dev 2>&1)
+output=$("$PROCESSED_TEMPLATE" --claude --dry-run --profile dev 2>&1)
 assert_contains "$output" "--network none" "none network allowed"
 
 teardown_test_dir
@@ -242,7 +242,7 @@ setup_test_dir
 git init -q
 
 # Test that --readonly flag adds :ro suffix to mounts
-output=$("$PROCESSED_TEMPLATE" --dry-run --readonly 2>&1)
+output=$("$PROCESSED_TEMPLATE" --claude --dry-run --readonly 2>&1)
 
 # The working directory should have :ro suffix in readonly mode
 assert_matches "$output" "$(pwd):[^:]*:ro" "workdir is read-only in readonly mode"
@@ -296,7 +296,7 @@ USER claude
 EOF
 
 readonly_exit=0
-if output=$(HOME="$LAST_FAKE_HOME" DOCKER_HOST="$REAL_DOCKER_HOST" "$PROCESSED_TEMPLATE" --allow-project-dockerfile --readonly -p "self-check" 2>&1); then
+if output=$(HOME="$LAST_FAKE_HOME" DOCKER_HOST="$REAL_DOCKER_HOST" "$PROCESSED_TEMPLATE" --claude --allow-project-dockerfile --readonly -p "self-check" 2>&1); then
   readonly_exit=0
 else
   readonly_exit=$?
@@ -322,7 +322,7 @@ RUN exit 99
 EOF
 
 dry_run_exit=0
-if output=$("$PROCESSED_TEMPLATE" --dry-run 2>&1); then
+if output=$("$PROCESSED_TEMPLATE" --claude --dry-run 2>&1); then
   dry_run_exit=0
 else
   dry_run_exit=$?
@@ -336,7 +336,7 @@ assert_contains "$output" "Refusing to build repo-controlled .agentbox.Dockerfil
 assert_not_contains "$output" "Building per-project image" "dry-run does not build project image"
 
 dry_run_exit=0
-if output=$("$PROCESSED_TEMPLATE" --allow-project-dockerfile --dry-run 2>&1); then
+if output=$("$PROCESSED_TEMPLATE" --claude --allow-project-dockerfile --dry-run 2>&1); then
   dry_run_exit=0
 else
   dry_run_exit=$?
@@ -387,7 +387,7 @@ ENTRYPOINT ["/evil-entrypoint"]
 EOF
 
 runtime_exit=0
-if output=$(HOME="$LAST_FAKE_HOME" DOCKER_HOST="$REAL_DOCKER_HOST" "$PROCESSED_TEMPLATE" --allow-project-dockerfile -p "runtime-contract" 2>&1); then
+if output=$(HOME="$LAST_FAKE_HOME" DOCKER_HOST="$REAL_DOCKER_HOST" "$PROCESSED_TEMPLATE" --claude --allow-project-dockerfile -p "runtime-contract" 2>&1); then
   runtime_exit=0
 else
   runtime_exit=$?

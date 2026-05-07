@@ -60,7 +60,7 @@ setup_test_dir
 
 rm -f "$HOME/.agentbox/version"
 rm -f "$HOME/.agentbox/.latest-version"
-output=$("$PROCESSED_TEMPLATE" --dry-run 2>&1)
+output=$("$PROCESSED_TEMPLATE" --claude --dry-run 2>&1)
 assert_not_contains "$output" "update available" "no warning when version file missing"
 
 teardown_test_dir
@@ -75,7 +75,7 @@ printf '%s' "2.1.31" > "$HOME/.agentbox/version"
 printf '%s' "2.1.31" > "$HOME/.agentbox/.latest-version"
 # Touch the cache so it's fresh
 touch "$HOME/.agentbox/.latest-version"
-output=$("$PROCESSED_TEMPLATE" --dry-run 2>&1)
+output=$("$PROCESSED_TEMPLATE" --claude --dry-run 2>&1)
 assert_not_contains "$output" "update available" "no warning when versions match"
 
 teardown_test_dir
@@ -89,7 +89,7 @@ setup_test_dir
 printf '%s' "2.1.31" > "$HOME/.agentbox/version"
 printf '%s' "2.1.34" > "$HOME/.agentbox/.latest-version"
 touch "$HOME/.agentbox/.latest-version"
-output=$("$PROCESSED_TEMPLATE" --dry-run 2>&1)
+output=$("$PROCESSED_TEMPLATE" --claude --dry-run 2>&1)
 assert_contains "$output" "update available" "warning shown when versions differ"
 assert_contains "$output" "2.1.31" "warning includes installed version"
 assert_contains "$output" "2.1.34" "warning includes latest version"
@@ -107,8 +107,8 @@ printf '%s' "2.1.31" > "$HOME/.agentbox/version"
 printf '%s' "2.1.34" > "$HOME/.agentbox/.latest-version"
 touch "$HOME/.agentbox/.latest-version"
 # Capture stdout and stderr separately
-stdout_output=$("$PROCESSED_TEMPLATE" --dry-run 2>/dev/null)
-stderr_output=$("$PROCESSED_TEMPLATE" --dry-run 2>&1 >/dev/null)
+stdout_output=$("$PROCESSED_TEMPLATE" --claude --dry-run 2>/dev/null)
+stderr_output=$("$PROCESSED_TEMPLATE" --claude --dry-run 2>&1 >/dev/null)
 assert_not_contains "$stdout_output" "update available" "warning not on stdout"
 assert_contains "$stderr_output" "update available" "warning on stderr"
 
