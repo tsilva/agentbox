@@ -98,6 +98,12 @@ if command -v jq &>/dev/null; then
   clone_rule=$(jq -c '.syscalls[] | select((.names // []) | index("clone"))' "$REPO_ROOT/scripts/seccomp.json")
 
   assert_not_contains "$all_seccomp_allows" "clone3" "clone3 is blocked by seccomp"
+  assert_not_contains "$all_seccomp_allows" "mknod" "mknod is blocked by seccomp"
+  assert_not_contains "$all_seccomp_allows" "mknodat" "mknodat is blocked by seccomp"
+  assert_not_contains "$all_seccomp_allows" "setuid" "setuid is blocked by seccomp"
+  assert_not_contains "$all_seccomp_allows" "setgid" "setgid is blocked by seccomp"
+  assert_not_contains "$all_seccomp_allows" "setgroups" "setgroups is blocked by seccomp"
+  assert_not_contains "$all_seccomp_allows" "syslog" "syslog is blocked by seccomp"
   assert_not_contains "$unconditional_seccomp_allows" "clone" "clone is not unconditionally allowed"
   assert_contains "$clone_rule" "SCMP_CMP_MASKED_EQ" "clone has namespace mask"
   assert_contains "$clone_rule" "2114060288" "clone namespace mask covers CLONE_NEW flags"

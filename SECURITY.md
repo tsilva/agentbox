@@ -6,6 +6,7 @@ agentbox runs Claude Code inside a Docker container with:
 
 - `--cap-drop=ALL` — all Linux capabilities are dropped
 - `--security-opt=no-new-privileges` — prevents privilege escalation
+- A custom seccomp profile that blocks namespace creation, io_uring, device-node creation, identity-changing syscalls, and kernel log access
 - Non-root user inside the container
 
 ### What IS isolated
@@ -20,6 +21,7 @@ agentbox runs Claude Code inside a Docker container with:
 - **Network access**: The container has unrestricted network access by default after the project path is trusted. Claude Code can make arbitrary HTTP requests, install packages, and communicate with external services.
 - **Mounted directories**: Any mounted path (working directory, extra mounts) is fully writable unless mounted read-only. With `--readonly`, agentbox-managed host mirrors are also mounted read-only.
 - **Selected runtime credentials**: Your selected Claude or Codex authentication state is mounted into trusted networked containers. The inactive runtime receives empty sandbox state. Trust is stored outside the repo under `~/.agentbox/trusted-projects`, so `.agentbox.json` cannot self-authorize a project.
+- **Image build inputs**: The base image and bundled agent CLIs are fetched during image build. Downloads are protected by TLS and release checksums, but the build intentionally tracks upstream releases instead of being fully reproducible from checked-in digests.
 
 ## `--dangerously-skip-permissions`
 
