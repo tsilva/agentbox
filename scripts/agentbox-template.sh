@@ -101,8 +101,22 @@ SANDBOX_CLAUDE_STATE_FILE="$AGENTBOX_STATE_DIR/.claude.json"
 SANDBOX_CREDENTIALS_FILE="$SANDBOX_CLAUDE_DIR/.credentials.json"
 SANDBOX_CODEX_DIR="$AGENTBOX_STATE_DIR/codex-config"
 SANDBOX_CODEX_AUTH_FILE="$SANDBOX_CODEX_DIR/auth.json"
+AUTHLESS_STATE_DIR="$AGENTBOX_STATE_DIR/authless-runtime"
+AUTHLESS_DOTCONFIG_DIR="$AUTHLESS_STATE_DIR/claude-dotconfig"
+AUTHLESS_CLAUDE_DIR="$AUTHLESS_STATE_DIR/claude-config"
+AUTHLESS_PLUGINS_DIR="$AUTHLESS_STATE_DIR/plugins"
+AUTHLESS_CLAUDE_STATE_FILE="$AUTHLESS_STATE_DIR/.claude.json"
+AUTHLESS_CODEX_DIR="$AUTHLESS_STATE_DIR/codex-config"
 KEYCHAIN_AUTH_ERROR=""
 HOST_KEYCHAIN_CREDENTIALS_JSON=""
+auth_state_mode="host"
+ACTIVE_SANDBOX_DOTCONFIG_DIR="$SANDBOX_DOTCONFIG_DIR"
+ACTIVE_SANDBOX_CLAUDE_DIR="$SANDBOX_CLAUDE_DIR"
+ACTIVE_SANDBOX_CREDENTIALS_FILE="$SANDBOX_CREDENTIALS_FILE"
+ACTIVE_SANDBOX_PLUGINS_DIR="$SANDBOX_PLUGINS_DIR"
+ACTIVE_SANDBOX_CLAUDE_STATE_FILE="$SANDBOX_CLAUDE_STATE_FILE"
+ACTIVE_SANDBOX_CODEX_DIR="$SANDBOX_CODEX_DIR"
+ACTIVE_SANDBOX_CODEX_AUTH_FILE="$SANDBOX_CODEX_AUTH_FILE"
 
 mkdir -p "$SANDBOX_CLAUDE_DIR"
 mkdir -p "$SANDBOX_DOTCONFIG_DIR"
@@ -263,64 +277,91 @@ sync_host_auth_state() {
   # Host ~/.claude.json carries the current account and auth metadata. Copy it
   # into the sandbox mirror so each container launch starts from fresh host state.
   if [ -s "$HOST_CLAUDE_STATE_FILE" ]; then
-    cp "$HOST_CLAUDE_STATE_FILE" "$SANDBOX_CLAUDE_STATE_FILE" 2>/dev/null || true
-  elif [ ! -s "$SANDBOX_CLAUDE_STATE_FILE" ]; then
-    echo '{}' > "$SANDBOX_CLAUDE_STATE_FILE"
+    cp "$HOST_CLAUDE_STATE_FILE" "$ACTIVE_SANDBOX_CLAUDE_STATE_FILE" 2>/dev/null || true
+    chmod 600 "$ACTIVE_SANDBOX_CLAUDE_STATE_FILE" 2>/dev/null || true
+  elif [ ! -s "$ACTIVE_SANDBOX_CLAUDE_STATE_FILE" ]; then
+    echo '{}' > "$ACTIVE_SANDBOX_CLAUDE_STATE_FILE"
+    chmod 600 "$ACTIVE_SANDBOX_CLAUDE_STATE_FILE" 2>/dev/null || true
   fi
 
   # Claude Code may still use ~/.claude/.credentials.json on some installs. If
   # the host no longer has this file, remove any stale sandbox copy.
   if json_file_has_auth_value "$HOST_CREDENTIALS_FILE"; then
-    cp "$HOST_CREDENTIALS_FILE" "$SANDBOX_CREDENTIALS_FILE" 2>/dev/null || true
-    chmod 600 "$SANDBOX_CREDENTIALS_FILE" 2>/dev/null || true
+    cp "$HOST_CREDENTIALS_FILE" "$ACTIVE_SANDBOX_CREDENTIALS_FILE" 2>/dev/null || true
+    chmod 600 "$ACTIVE_SANDBOX_CREDENTIALS_FILE" 2>/dev/null || true
   elif read_host_keychain_credentials && json_string_has_auth_value "$HOST_KEYCHAIN_CREDENTIALS_JSON"; then
-    printf '%s\n' "$HOST_KEYCHAIN_CREDENTIALS_JSON" > "$SANDBOX_CREDENTIALS_FILE" 2>/dev/null || true
-    chmod 600 "$SANDBOX_CREDENTIALS_FILE" 2>/dev/null || true
+    printf '%s\n' "$HOST_KEYCHAIN_CREDENTIALS_JSON" > "$ACTIVE_SANDBOX_CREDENTIALS_FILE" 2>/dev/null || true
+    chmod 600 "$ACTIVE_SANDBOX_CREDENTIALS_FILE" 2>/dev/null || true
   else
-    rm -f "$SANDBOX_CREDENTIALS_FILE" 2>/dev/null || true
+    rm -f "$ACTIVE_SANDBOX_CREDENTIALS_FILE" 2>/dev/null || true
   fi
 }
 
 sync_host_codex_state() {
   if [ -s "$HOST_CODEX_AUTH_FILE" ]; then
-    cp "$HOST_CODEX_AUTH_FILE" "$SANDBOX_CODEX_AUTH_FILE" 2>/dev/null || true
-    chmod 600 "$SANDBOX_CODEX_AUTH_FILE" 2>/dev/null || true
+    cp "$HOST_CODEX_AUTH_FILE" "$ACTIVE_SANDBOX_CODEX_AUTH_FILE" 2>/dev/null || true
+    chmod 600 "$ACTIVE_SANDBOX_CODEX_AUTH_FILE" 2>/dev/null || true
   else
-    rm -f "$SANDBOX_CODEX_AUTH_FILE" 2>/dev/null || true
+    rm -f "$ACTIVE_SANDBOX_CODEX_AUTH_FILE" 2>/dev/null || true
   fi
 
   if [ -s "$HOST_CODEX_CONFIG_FILE" ]; then
-    cp "$HOST_CODEX_CONFIG_FILE" "$SANDBOX_CODEX_DIR/config.toml" 2>/dev/null || true
-    chmod 600 "$SANDBOX_CODEX_DIR/config.toml" 2>/dev/null || true
-  elif [ ! -e "$SANDBOX_CODEX_DIR/config.toml" ]; then
-    : > "$SANDBOX_CODEX_DIR/config.toml"
+    cp "$HOST_CODEX_CONFIG_FILE" "$ACTIVE_SANDBOX_CODEX_DIR/config.toml" 2>/dev/null || true
+    chmod 600 "$ACTIVE_SANDBOX_CODEX_DIR/config.toml" 2>/dev/null || true
+  elif [ ! -e "$ACTIVE_SANDBOX_CODEX_DIR/config.toml" ]; then
+    : > "$ACTIVE_SANDBOX_CODEX_DIR/config.toml"
+    chmod 600 "$ACTIVE_SANDBOX_CODEX_DIR/config.toml" 2>/dev/null || true
   fi
 }
 
 ensure_runtime_claude_md_link() {
-  rm -rf "$SANDBOX_CLAUDE_DIR/CLAUDE.md"
-  ln -s "runtime/CLAUDE.md" "$SANDBOX_CLAUDE_DIR/CLAUDE.md"
+  rm -rf "$ACTIVE_SANDBOX_CLAUDE_DIR/CLAUDE.md"
+  ln -s "runtime/CLAUDE.md" "$ACTIVE_SANDBOX_CLAUDE_DIR/CLAUDE.md"
 }
 
 ensure_runtime_codex_agents_link() {
-  rm -rf "$SANDBOX_CODEX_DIR/AGENTS.md"
-  ln -s "runtime/AGENTS.md" "$SANDBOX_CODEX_DIR/AGENTS.md"
+  rm -rf "$ACTIVE_SANDBOX_CODEX_DIR/AGENTS.md"
+  ln -s "runtime/AGENTS.md" "$ACTIVE_SANDBOX_CODEX_DIR/AGENTS.md"
 }
 
 sync_host_plugins() {
   # Sync sandbox plugins from host (always sync to keep in sync with host state)
-  sync_directory "$HOST_CLAUDE_DIR/plugins/marketplaces" "$SANDBOX_PLUGINS_DIR/marketplaces"
+  sync_directory "$HOST_CLAUDE_DIR/plugins/marketplaces" "$ACTIVE_SANDBOX_PLUGINS_DIR/marketplaces"
 
   # Sync cache directory (contains installed plugin files)
-  sync_directory "$HOST_CLAUDE_DIR/plugins/cache" "$SANDBOX_PLUGINS_DIR/cache"
+  sync_directory "$HOST_CLAUDE_DIR/plugins/cache" "$ACTIVE_SANDBOX_PLUGINS_DIR/cache"
 
   # Sync metadata files with path conversion (host paths → container paths)
   for metadata_file in known_marketplaces.json installed_plugins.json; do
     if [ -f "$HOST_CLAUDE_DIR/plugins/$metadata_file" ]; then
       content=$(<"$HOST_CLAUDE_DIR/plugins/$metadata_file")
-      printf '%s\n' "${content//$HOME//home/claude}" > "$SANDBOX_PLUGINS_DIR/$metadata_file" 2>/dev/null || true
+      printf '%s\n' "${content//$HOME//home/claude}" > "$ACTIVE_SANDBOX_PLUGINS_DIR/$metadata_file" 2>/dev/null || true
     fi
   done
+}
+
+use_authless_sandbox_state() {
+  auth_state_mode="authless"
+  ACTIVE_SANDBOX_DOTCONFIG_DIR="$AUTHLESS_DOTCONFIG_DIR"
+  ACTIVE_SANDBOX_CLAUDE_DIR="$AUTHLESS_CLAUDE_DIR"
+  ACTIVE_SANDBOX_CREDENTIALS_FILE="$AUTHLESS_CLAUDE_DIR/.credentials.json"
+  ACTIVE_SANDBOX_PLUGINS_DIR="$AUTHLESS_PLUGINS_DIR"
+  ACTIVE_SANDBOX_CLAUDE_STATE_FILE="$AUTHLESS_CLAUDE_STATE_FILE"
+  ACTIVE_SANDBOX_CODEX_DIR="$AUTHLESS_CODEX_DIR"
+  ACTIVE_SANDBOX_CODEX_AUTH_FILE="$AUTHLESS_CODEX_DIR/auth.json"
+
+  rm -rf "$AUTHLESS_DOTCONFIG_DIR" "$AUTHLESS_CLAUDE_DIR" \
+    "$AUTHLESS_PLUGINS_DIR" "$AUTHLESS_CODEX_DIR" "$AUTHLESS_CLAUDE_STATE_FILE" \
+    2>/dev/null || true
+  mkdir -p "$AUTHLESS_DOTCONFIG_DIR"
+  mkdir -p "$AUTHLESS_CLAUDE_DIR/plans" "$AUTHLESS_CLAUDE_DIR/runtime"
+  mkdir -p "$AUTHLESS_PLUGINS_DIR"
+  mkdir -p "$AUTHLESS_CODEX_DIR/runtime" "$AUTHLESS_CODEX_DIR/sessions" \
+    "$AUTHLESS_CODEX_DIR/log" "$AUTHLESS_CODEX_DIR/tmp"
+  printf '%s\n' '{}' > "$AUTHLESS_CLAUDE_STATE_FILE"
+  chmod 600 "$AUTHLESS_CLAUDE_STATE_FILE" 2>/dev/null || true
+  : > "$AUTHLESS_CODEX_DIR/config.toml"
+  chmod 600 "$AUTHLESS_CODEX_DIR/config.toml" 2>/dev/null || true
 }
 
 prepare_sandbox_state() {
@@ -338,9 +379,14 @@ prepare_sandbox_state() {
 prepare_sandbox_non_auth_state() {
   ensure_runtime_claude_md_link
   ensure_runtime_codex_agents_link
-  sync_host_plugins
+  if [ "$auth_state_mode" != "authless" ]; then
+    sync_host_plugins
+  fi
   # Claude Code expects valid JSON in the mirrored state file.
-  [ -s "$SANDBOX_CLAUDE_STATE_FILE" ] || echo '{}' > "$SANDBOX_CLAUDE_STATE_FILE"
+  if [ ! -s "$ACTIVE_SANDBOX_CLAUDE_STATE_FILE" ]; then
+    echo '{}' > "$ACTIVE_SANDBOX_CLAUDE_STATE_FILE"
+  fi
+  chmod 600 "$ACTIVE_SANDBOX_CLAUDE_STATE_FILE" 2>/dev/null || true
 }
 
 # --- Argument parsing ---
@@ -967,8 +1013,16 @@ network_args=()
 
 # --- Auth and project trust gate ---
 # Host credentials are only mirrored after trust checks have passed.
+auth_state_required=true
+if [ "${network_mode:-bridge}" = "none" ] && ! is_project_trusted; then
+  auth_state_required=false
+  use_authless_sandbox_state
+fi
+
 if [ "$dry_run" != true ]; then
-  require_runtime_auth
+  if [ "$auth_state_required" = true ]; then
+    require_runtime_auth
+  fi
   if [ "${network_mode:-bridge}" != "none" ] && ! is_project_trusted; then
     runtime_label="Claude"
     [ "$agent_runtime" = "codex" ] && runtime_label="Codex"
@@ -976,7 +1030,11 @@ if [ "$dry_run" != true ]; then
       "Run 'agentbox trust' from this project directory after reviewing it, or set network: \"none\" in .agentbox.json."
     exit 1
   fi
-  prepare_sandbox_state
+  if [ "$auth_state_required" = true ]; then
+    prepare_sandbox_state
+  else
+    prepare_sandbox_non_auth_state
+  fi
 else
   prepare_sandbox_non_auth_state
 fi
@@ -1076,6 +1134,7 @@ if [ "$audit_log" = "true" ]; then
   container_args+=(--name "$container_name")
   # Ensure the logs directory exists for session log dumps
   mkdir -p ~/.agentbox/logs
+  chmod 700 ~/.agentbox/logs 2>/dev/null || true
 else
   # Auto-remove container on exit for zero disk overhead
   container_args+=(--rm)
@@ -1097,8 +1156,8 @@ else
 fi
 
 runtime_env_args=(-e "AGENTBOX_RUNTIME=$agent_runtime")
-if [ "$agent_runtime" = "codex" ] && [ -n "${OPENAI_API_KEY:-}" ]; then
-  runtime_env_args+=(-e "OPENAI_API_KEY=$OPENAI_API_KEY")
+if [ "$agent_runtime" = "codex" ] && [ "$auth_state_required" = true ] && [ -n "${OPENAI_API_KEY:-}" ]; then
+  runtime_env_args+=(-e "OPENAI_API_KEY")
 fi
 
 # Assemble the complete docker run command as an array for safe quoting
@@ -1119,7 +1178,7 @@ docker_cmd=(
   --tmpfs "/tmp:rw,nosuid,size=$TMPFS_TMP_SIZE"
   --tmpfs "/home/claude/.cache:rw,nosuid,size=$TMPFS_CACHE_SIZE"
   --tmpfs "/home/claude/.npm:rw,nosuid,size=$TMPFS_NPM_SIZE"
-  -v "$SANDBOX_DOTCONFIG_DIR:/home/claude/.config${ro_suffix}"
+  -v "$ACTIVE_SANDBOX_DOTCONFIG_DIR:/home/claude/.config${ro_suffix}"
   --tmpfs "/home/claude/.local:rw,nosuid,size=$TMPFS_LOCAL_SIZE,uid=1000,gid=1000"
   # Apply resource limits (if configured in profile)
   ${resource_args[@]+"${resource_args[@]}"}
@@ -1140,15 +1199,15 @@ docker_cmd=(
   -v "${workdir}:${workdir}${ro_suffix}"
   # Mount the sandbox mirror of Claude's ~/.claude directory. Auth is refreshed
   # from the host before launch, but subsequent writes stay isolated to agentbox.
-  -v "$SANDBOX_CLAUDE_DIR:/home/claude/.claude${ro_suffix}"
+  -v "$ACTIVE_SANDBOX_CLAUDE_DIR:/home/claude/.claude${ro_suffix}"
   # Keep sandbox-awareness CLAUDE.md writable via a tmpfs-backed runtime path.
   --tmpfs "/home/claude/.claude/runtime:rw,nosuid,size=16m,uid=1000,gid=1000"
   # Mount the sandbox mirror of Claude's JSON state file.
-  -v "$SANDBOX_CLAUDE_STATE_FILE:/home/claude/.claude.json${ro_suffix}"
+  -v "$ACTIVE_SANDBOX_CLAUDE_STATE_FILE:/home/claude/.claude.json${ro_suffix}"
   # Mount sandbox plugins directory (isolated from host ~/.claude/plugins/)
-  -v "$SANDBOX_PLUGINS_DIR:/home/claude/.claude/plugins${ro_suffix}"
+  -v "$ACTIVE_SANDBOX_PLUGINS_DIR:/home/claude/.claude/plugins${ro_suffix}"
   # Mount the sandbox mirror of Codex state/config/auth.
-  -v "$SANDBOX_CODEX_DIR:/home/claude/.codex${ro_suffix}"
+  -v "$ACTIVE_SANDBOX_CODEX_DIR:/home/claude/.codex${ro_suffix}"
   # Keep sandbox-awareness Codex AGENTS.md writable via tmpfs-backed runtime path.
   --tmpfs "/home/claude/.codex/runtime:rw,nosuid,size=16m,uid=1000,gid=1000"
   # Add readonly mode tmpfs overlay (plans directory) when enabled
@@ -1206,7 +1265,11 @@ if [ "$audit_log" = "true" ]; then
 
   # Dump the container's stdout/stderr to a log file for audit review
   log_file=~/.agentbox/logs/${container_name}.log
+  old_umask=$(umask)
+  umask 077
   docker logs "$container_name" > "$log_file" 2>&1 || true
+  umask "$old_umask"
+  chmod 600 "$log_file" 2>/dev/null || true
   # Remove the named container now that logs are captured
   docker rm "$container_name" &>/dev/null || true
   info "Session log: $log_file"

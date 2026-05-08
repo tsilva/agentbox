@@ -55,7 +55,7 @@ agentbox trust --list
 agentbox untrust
 ```
 
-`network: "none"` can run without project trust, but Claude Code will not be able to reach Anthropic services in that mode.
+`network: "none"` can run without project trust. In that untrusted offline mode, agentbox uses a freshly reset authless runtime state instead of mounting mirrored Claude/Codex credentials or plugin state. Claude Code will not be able to reach Anthropic services in that mode.
 
 ## Recommendations
 

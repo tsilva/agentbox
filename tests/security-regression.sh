@@ -92,6 +92,19 @@ setup_test_dir
 output=$("$PROCESSED_TEMPLATE" --claude --dry-run 2>&1)
 assert_matches "$output" "--security-opt seccomp=" "seccomp profile specified"
 
+if command -v jq &>/dev/null; then
+  unconditional_seccomp_allows=$(jq -r '.syscalls[] | select(.action == "SCMP_ACT_ALLOW" and ((.args // []) | length == 0)) | .names[]' "$REPO_ROOT/scripts/seccomp.json")
+  all_seccomp_allows=$(jq -r '.syscalls[] | select(.action == "SCMP_ACT_ALLOW") | .names[]' "$REPO_ROOT/scripts/seccomp.json")
+  clone_rule=$(jq -c '.syscalls[] | select((.names // []) | index("clone"))' "$REPO_ROOT/scripts/seccomp.json")
+
+  assert_not_contains "$all_seccomp_allows" "clone3" "clone3 is blocked by seccomp"
+  assert_not_contains "$unconditional_seccomp_allows" "clone" "clone is not unconditionally allowed"
+  assert_contains "$clone_rule" "SCMP_CMP_MASKED_EQ" "clone has namespace mask"
+  assert_contains "$clone_rule" "2114060288" "clone namespace mask covers CLONE_NEW flags"
+else
+  skip "jq not installed, skipping seccomp JSON assertions"
+fi
+
 teardown_test_dir
 
 # --- Test: Git directory is always read-only ---

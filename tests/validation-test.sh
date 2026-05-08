@@ -50,6 +50,10 @@ make_canonical_temp_dir() {
   canonicalize_path "$temp_dir"
 }
 
+file_mode() {
+  stat -f %Lp "$1" 2>/dev/null || stat -c %a "$1"
+}
+
 setup_fake_docker() {
   FAKE_DOCKER_MARKER="$TEST_DIR/docker-invoked"
   local fake_bin="$TEST_DIR/fake-bin"
@@ -1009,6 +1013,18 @@ assert_docker_invoked "codex OPENAI_API_KEY reaches docker"
 
 teardown_test_dir
 
+setup_test_dir
+
+setup_fake_home
+fake_home="$LAST_FAKE_HOME"
+secret_key="sk-test-secret-for-dry-run"
+output=$(HOME="$fake_home" OPENAI_API_KEY="$secret_key" "$PROCESSED_TEMPLATE" --codex --dry-run -p "hello" 2>&1)
+assert_contains "$output" "OPENAI_API_KEY" "codex dry-run shows API key env name"
+assert_not_contains "$output" "$secret_key" "codex dry-run redacts API key value"
+assert_not_contains "$output" "OPENAI_API_KEY=$secret_key" "codex dry-run does not embed API key assignment"
+
+teardown_test_dir
+
 # --- Test: Network none bypasses project trust gate ---
 echo ""
 echo "--- Network Trust Gate ---"
@@ -1019,19 +1035,34 @@ setup_fake_home
 fake_home="$LAST_FAKE_HOME"
 setup_fake_docker
 setup_fake_security
-mkdir -p "$fake_home/.claude"
+mkdir -p "$fake_home/.claude" "$fake_home/.agentbox/claude-config"
 
 cat > "$fake_home/.claude/.credentials.json" << 'EOF'
 {"claudeAiOauth":{"accessToken":"host-access","refreshToken":"host-refresh","expiresAt":123}}
+EOF
+cat > "$fake_home/.agentbox/claude-config/.credentials.json" << 'EOF'
+{"claudeAiOauth":{"accessToken":"stale-access","refreshToken":"stale-refresh","expiresAt":1}}
 EOF
 
 cat > .agentbox.json << 'EOF'
 {"offline":{"network":"none"}}
 EOF
 
+dry_output=$(HOME="$fake_home" "$PROCESSED_TEMPLATE" --claude --dry-run -p "hello" 2>&1)
+assert_contains "$dry_output" "$fake_home/.agentbox/authless-runtime/claude-config:/home/claude/.claude" "network none untrusted mounts authless Claude state"
+assert_not_contains "$dry_output" "$fake_home/.agentbox/claude-config:/home/claude/.claude" "network none untrusted does not mount normal Claude state"
+codex_offline_secret="sk-offline-untrusted-secret"
+codex_dry_output=$(HOME="$fake_home" OPENAI_API_KEY="$codex_offline_secret" "$PROCESSED_TEMPLATE" --codex --dry-run -p "hello" 2>&1)
+assert_not_contains "$codex_dry_output" "OPENAI_API_KEY" "network none untrusted does not pass Codex API key env"
+assert_not_contains "$codex_dry_output" "$codex_offline_secret" "network none untrusted does not expose Codex API key value"
+
 output=$(HOME="$fake_home" PATH="$FAKE_TOOLS_PATH" "$PROCESSED_TEMPLATE" --claude -p "hello" 2>&1 || true)
 assert_contains "$output" "fake docker invoked" "network none allows untrusted project to reach docker"
 assert_docker_invoked "network none bypasses trust gate"
+authless_credentials=$(cat "$fake_home/.agentbox/authless-runtime/claude-config/.credentials.json" 2>/dev/null || true)
+assert_not_contains "$authless_credentials" "host-refresh" "network none untrusted does not mirror host credentials"
+normal_credentials=$(cat "$fake_home/.agentbox/claude-config/.credentials.json" 2>/dev/null || true)
+assert_contains "$normal_credentials" "stale-refresh" "network none untrusted leaves normal credential mirror untouched"
 
 teardown_test_dir
 
@@ -1079,11 +1110,13 @@ synced_name=$(jq -r '.oauthAccount.displayName' "$fake_home/.agentbox/.claude.js
 synced_subscription=$(jq -r '.recommendedSubscription' "$fake_home/.agentbox/.claude.json")
 synced_upsell_count=$(jq -r '.subscriptionUpsellShownCount' "$fake_home/.agentbox/.claude.json")
 synced_created_at=$(jq -r '.oauthAccount.accountCreatedAt' "$fake_home/.agentbox/.claude.json")
+synced_state_mode=$(file_mode "$fake_home/.agentbox/.claude.json")
 
 assert_equals "$synced_name" "Host Session" "host oauthAccount overwrites stale sandbox data"
 assert_equals "$synced_subscription" "max" "host subscription metadata mirrored"
 assert_equals "$synced_upsell_count" "7" "host upsell counters mirrored"
 assert_equals "$synced_created_at" "2026-03-21T16:50:27Z" "host auth metadata fields preserved in mirror"
+assert_equals "$synced_state_mode" "600" "host Claude state mirror is private"
 
 teardown_test_dir
 
@@ -1171,6 +1204,34 @@ HOME="$fake_home" PATH="$FAKE_TOOLS_PATH" "$PROCESSED_TEMPLATE" --claude --dry-r
 
 synced_refresh_token=$(jq -r '.claudeAiOauth.refreshToken' "$fake_home/.agentbox/claude-config/.credentials.json")
 assert_equals "$synced_refresh_token" "stale-refresh" "dry-run does not mirror host credentials"
+
+teardown_test_dir
+
+# --- Test: Audit log permissions ---
+echo ""
+echo "--- Audit Log Permissions ---"
+
+setup_test_dir
+
+setup_fake_home
+fake_home="$LAST_FAKE_HOME"
+setup_fake_docker
+
+cat > .agentbox.json << 'EOF'
+{"audit":{"network":"none","audit_log":true}}
+EOF
+
+HOME="$fake_home" PATH="$FAKE_TOOLS_PATH" "$PROCESSED_TEMPLATE" --claude -p "hello" >/dev/null 2>&1 || true
+logs_dir="$fake_home/.agentbox/logs"
+log_file=$(find "$logs_dir" -type f -name 'agentbox-*.log' -print -quit 2>/dev/null || true)
+
+assert_equals "$(file_mode "$logs_dir")" "700" "audit log directory is private"
+if [ -n "$log_file" ]; then
+  pass "audit log file is created"
+  assert_equals "$(file_mode "$log_file")" "600" "audit log file is private"
+else
+  fail "audit log file is created"
+fi
 
 teardown_test_dir
 
