@@ -120,7 +120,6 @@ Supported profile fields include `mounts`, `ports`, `network`, `audit_log`, `cpu
 - Host auth is the source of truth. agentbox refreshes sandbox auth from host Claude or Codex config before launch, or passes `OPENAI_API_KEY` through for Codex when set.
 - A project-local `.agentbox.Dockerfile` can add dependencies, but it is used only when the launch includes `--allow-project-dockerfile`.
 - `entrypoint.sh` writes runtime sandbox-awareness files (`CLAUDE.md` for Claude and `AGENTS.md` for Codex) so the selected agent sees the active mounts, blocked paths, network mode, and resource limits.
-- Optional desktop notifications are provided by [claude-code-notify](https://github.com/tsilva/claude-code-notify) through `host.docker.internal:19223`.
 - See [SECURITY.md](SECURITY.md) for the isolation model, known boundaries, and reporting instructions.
 
 ## Architecture

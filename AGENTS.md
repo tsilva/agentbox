@@ -172,10 +172,6 @@ The project consists of shell scripts that wrap Docker:
 
 - [Docker Desktop](https://docs.docker.com/get-docker/) installed and running
 
-## Notifications
-
-Desktop notifications are provided by [claude-code-notify](https://github.com/tsilva/claude-code-notify) (separate project). When sandbox support is enabled during claude-code-notify installation, a TCP listener starts on `localhost:19223`. The container connects via `host.docker.internal`. See README.md for setup instructions.
-
 ## Documentation
 
 README.md must be kept up to date with any significant project changes.

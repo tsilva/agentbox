@@ -16,7 +16,6 @@ LABEL org.opencontainers.image.title="agentbox" \
 #   curl             — download Claude Code binary and version manifest
 #   git              — coding agents use git for project context and diffs
 #   jq               — parse JSON manifests (checksum verification) and project configs
-#   netcat-openbsd   — TCP connectivity for desktop notification support (port 19223)
 #   python3          — required by many Claude Code tool-use workflows
 #   python3-venv     — create isolated Python environments
 #   python-is-python3 — symlinks `python` → `python3` for compatibility
@@ -27,7 +26,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     git \
     jq \
-    netcat-openbsd \
     python3 \
     python3-venv \
     python-is-python3 \
