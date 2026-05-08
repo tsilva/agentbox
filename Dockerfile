@@ -64,7 +64,23 @@ ENV PATH="/home/claude/.local/bin:/opt/uv/bin:/opt/claude-code:/opt/codex:$PATH"
 # Install uv to /opt/uv/bin so it persists on a read-only rootfs.
 # ~/.local is a tmpfs at runtime, so user-local installs would be lost.
 ARG UV_VERSION=0.7.12
-RUN curl -LsSf https://astral.sh/uv/${UV_VERSION}/install.sh | sh
+RUN set -eux; \
+    case "$(uname -m)" in \
+      x86_64|amd64) uv_arch="x86_64" ;; \
+      aarch64|arm64) uv_arch="aarch64" ;; \
+      *) echo "Unsupported architecture for uv: $(uname -m)" >&2; exit 1 ;; \
+    esac; \
+    uv_target="${uv_arch}-unknown-linux-gnu"; \
+    uv_artifact="uv-${uv_target}.tar.gz"; \
+    uv_base_url="https://github.com/astral-sh/uv/releases/download/${UV_VERSION}"; \
+    uv_tmp="$(mktemp -d)"; \
+    curl -fsSL -o "$uv_tmp/$uv_artifact" "$uv_base_url/$uv_artifact"; \
+    curl -fsSL -o "$uv_tmp/$uv_artifact.sha256" "$uv_base_url/$uv_artifact.sha256"; \
+    (cd "$uv_tmp" && sha256sum -c "$uv_artifact.sha256"); \
+    tar -xzf "$uv_tmp/$uv_artifact" -C "$uv_tmp"; \
+    install -m 755 "$uv_tmp/uv-${uv_target}/uv" /opt/uv/bin/uv; \
+    install -m 755 "$uv_tmp/uv-${uv_target}/uvx" /opt/uv/bin/uvx; \
+    rm -rf "$uv_tmp"
 
 # --- Common Python Packages ---
 # Pre-install pytest for common testing workflows.

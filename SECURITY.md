@@ -43,7 +43,7 @@ When running from a directory that is not a git repository, a warning is display
 
 If a `.agentbox.Dockerfile` exists in the project root, agentbox refuses to use it unless the launch includes `--allow-project-dockerfile`. This file runs with full Docker build capabilities and constitutes an **explicit trust boundary** — it can install packages, run arbitrary commands at build time, and modify the container environment. Only use projects with `.agentbox.Dockerfile` from sources you trust. `--dry-run` skips builds.
 
-When a project Dockerfile is allowed, agentbox forces the runtime back to UID 1000 and the host-controlled trusted entrypoint. This prevents the project image from replacing startup behavior with its own `ENTRYPOINT`, `CMD`, or `USER`.
+When a project Dockerfile is allowed, agentbox forces the runtime back to UID 1000 and the host-controlled trusted entrypoint. This prevents the project image from replacing startup behavior with its own `ENTRYPOINT`, `CMD`, or `USER`, but it does **not** make the project image untrusted code: the image can still replace shells, shared libraries, installed agent binaries, and other runtime components. Treat `--allow-project-dockerfile` as full runtime trust, especially for networked launches that expose agent credentials.
 
 ## Project Trust
 

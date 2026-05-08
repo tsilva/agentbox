@@ -88,7 +88,8 @@ install_codex_cli() {
     fi
     echo "Checksum verified: $actual_sha"
   else
-    echo "Warning: release asset did not include a sha256 digest; skipping checksum verification" >&2
+    echo "Codex release asset did not include a sha256 digest; refusing unverifiable download" >&2
+    exit 1
   fi
 
   tar -xzf "$tmp_dir/$asset_name" -C "$tmp_dir"

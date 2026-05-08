@@ -118,30 +118,131 @@ ACTIVE_SANDBOX_CLAUDE_STATE_FILE="$SANDBOX_CLAUDE_STATE_FILE"
 ACTIVE_SANDBOX_CODEX_DIR="$SANDBOX_CODEX_DIR"
 ACTIVE_SANDBOX_CODEX_AUTH_FILE="$SANDBOX_CODEX_AUTH_FILE"
 
-mkdir -p "$SANDBOX_CLAUDE_DIR"
-mkdir -p "$SANDBOX_DOTCONFIG_DIR"
-mkdir -p "$SANDBOX_PLUGINS_DIR"
-mkdir -p "$SANDBOX_CLAUDE_DIR/plugins"
-mkdir -p "$SANDBOX_CLAUDE_DIR/plans"
-mkdir -p "$SANDBOX_CLAUDE_DIR/runtime"
-mkdir -p "$SANDBOX_CODEX_DIR"
-mkdir -p "$SANDBOX_CODEX_DIR/runtime"
-mkdir -p "$SANDBOX_CODEX_DIR/sessions"
-mkdir -p "$SANDBOX_CODEX_DIR/log"
-mkdir -p "$SANDBOX_CODEX_DIR/tmp"
+ensure_state_root() {
+  if [ -L "$AGENTBOX_STATE_DIR" ]; then
+    error "Refusing to use symlinked agentbox state directory: $AGENTBOX_STATE_DIR"
+    exit 1
+  fi
+
+  mkdir -p "$AGENTBOX_STATE_DIR"
+  chmod 700 "$AGENTBOX_STATE_DIR" 2>/dev/null || true
+}
+
+require_state_path() {
+  local path="$1"
+
+  case "$path" in
+    "$AGENTBOX_STATE_DIR"|"$AGENTBOX_STATE_DIR"/*)
+      return 0
+      ;;
+    *)
+      error "Refusing to write outside agentbox state directory: $path"
+      exit 1
+      ;;
+  esac
+}
+
+ensure_private_dir() {
+  local dir="$1"
+
+  require_state_path "$dir"
+  if [ -L "$dir" ] || { [ -e "$dir" ] && [ ! -d "$dir" ]; }; then
+    rm -rf "$dir"
+  fi
+  mkdir -p "$dir"
+  chmod 700 "$dir" 2>/dev/null || true
+}
+
+reset_private_dir() {
+  local dir="$1"
+
+  require_state_path "$dir"
+  if [ "$dir" = "$AGENTBOX_STATE_DIR" ]; then
+    error "Refusing to reset agentbox state root"
+    exit 1
+  fi
+  rm -rf "$dir"
+  mkdir -p "$dir"
+  chmod 700 "$dir" 2>/dev/null || true
+}
+
+remove_private_path() {
+  local path="$1"
+
+  require_state_path "$path"
+  rm -rf "$path" 2>/dev/null || true
+}
+
+sanitize_private_file_path() {
+  local path="$1"
+
+  require_state_path "$path"
+  if [ -L "$path" ] || [ -d "$path" ]; then
+    rm -rf "$path" 2>/dev/null || true
+  fi
+}
+
+write_private_file_from_file() {
+  local src="$1"
+  local dest="$2"
+  local parent tmp
+
+  require_state_path "$dest"
+  parent=$(dirname "$dest")
+  ensure_private_dir "$parent"
+  tmp=$(mktemp "$parent/.agentbox-write.XXXXXX")
+  cp "$src" "$tmp"
+  chmod 600 "$tmp" 2>/dev/null || true
+  rm -rf "$dest" 2>/dev/null || true
+  mv "$tmp" "$dest"
+  chmod 600 "$dest" 2>/dev/null || true
+}
+
+write_private_file_content() {
+  local dest="$1"
+  local content="$2"
+  local parent tmp
+
+  require_state_path "$dest"
+  parent=$(dirname "$dest")
+  ensure_private_dir "$parent"
+  tmp=$(mktemp "$parent/.agentbox-write.XXXXXX")
+  printf '%s' "$content" > "$tmp"
+  chmod 600 "$tmp" 2>/dev/null || true
+  rm -rf "$dest" 2>/dev/null || true
+  mv "$tmp" "$dest"
+  chmod 600 "$dest" 2>/dev/null || true
+}
+
+ensure_sandbox_state_dirs() {
+  ensure_state_root
+  ensure_private_dir "$SANDBOX_CLAUDE_DIR"
+  ensure_private_dir "$SANDBOX_DOTCONFIG_DIR"
+  ensure_private_dir "$SANDBOX_PLUGINS_DIR"
+  ensure_private_dir "$SANDBOX_CLAUDE_DIR/plugins"
+  ensure_private_dir "$SANDBOX_CLAUDE_DIR/plans"
+  ensure_private_dir "$SANDBOX_CLAUDE_DIR/runtime"
+  ensure_private_dir "$SANDBOX_CODEX_DIR"
+  ensure_private_dir "$SANDBOX_CODEX_DIR/runtime"
+  ensure_private_dir "$SANDBOX_CODEX_DIR/sessions"
+  ensure_private_dir "$SANDBOX_CODEX_DIR/log"
+  ensure_private_dir "$SANDBOX_CODEX_DIR/tmp"
+}
+
+ensure_sandbox_state_dirs
 
 sync_directory() {
   local src="$1"
   local dest="$2"
 
+  reset_private_dir "$dest"
   if [ -d "$src" ]; then
     if command -v rsync &>/dev/null; then
-      mkdir -p "$dest"
       rsync -a --delete "$src"/ "$dest"/ 2>/dev/null || true
     else
-      rm -rf "$dest" 2>/dev/null || true
-      cp -R "$src" "$dest" 2>/dev/null || true
+      cp -R "$src"/. "$dest"/ 2>/dev/null || true
     fi
+    chmod 700 "$dest" 2>/dev/null || true
   fi
 }
 
@@ -274,43 +375,42 @@ require_runtime_auth() {
 }
 
 sync_host_auth_state() {
+  sanitize_private_file_path "$ACTIVE_SANDBOX_CLAUDE_STATE_FILE"
+  sanitize_private_file_path "$ACTIVE_SANDBOX_CREDENTIALS_FILE"
+
   # Host ~/.claude.json carries the current account and auth metadata. Copy it
   # into the sandbox mirror so each container launch starts from fresh host state.
   if [ -s "$HOST_CLAUDE_STATE_FILE" ]; then
-    cp "$HOST_CLAUDE_STATE_FILE" "$ACTIVE_SANDBOX_CLAUDE_STATE_FILE" 2>/dev/null || true
-    chmod 600 "$ACTIVE_SANDBOX_CLAUDE_STATE_FILE" 2>/dev/null || true
+    write_private_file_from_file "$HOST_CLAUDE_STATE_FILE" "$ACTIVE_SANDBOX_CLAUDE_STATE_FILE" 2>/dev/null || true
   elif [ ! -s "$ACTIVE_SANDBOX_CLAUDE_STATE_FILE" ]; then
-    echo '{}' > "$ACTIVE_SANDBOX_CLAUDE_STATE_FILE"
-    chmod 600 "$ACTIVE_SANDBOX_CLAUDE_STATE_FILE" 2>/dev/null || true
+    write_private_file_content "$ACTIVE_SANDBOX_CLAUDE_STATE_FILE" "{}" 2>/dev/null || true
   fi
 
   # Claude Code may still use ~/.claude/.credentials.json on some installs. If
   # the host no longer has this file, remove any stale sandbox copy.
   if json_file_has_auth_value "$HOST_CREDENTIALS_FILE"; then
-    cp "$HOST_CREDENTIALS_FILE" "$ACTIVE_SANDBOX_CREDENTIALS_FILE" 2>/dev/null || true
-    chmod 600 "$ACTIVE_SANDBOX_CREDENTIALS_FILE" 2>/dev/null || true
+    write_private_file_from_file "$HOST_CREDENTIALS_FILE" "$ACTIVE_SANDBOX_CREDENTIALS_FILE" 2>/dev/null || true
   elif read_host_keychain_credentials && json_string_has_auth_value "$HOST_KEYCHAIN_CREDENTIALS_JSON"; then
-    printf '%s\n' "$HOST_KEYCHAIN_CREDENTIALS_JSON" > "$ACTIVE_SANDBOX_CREDENTIALS_FILE" 2>/dev/null || true
-    chmod 600 "$ACTIVE_SANDBOX_CREDENTIALS_FILE" 2>/dev/null || true
+    write_private_file_content "$ACTIVE_SANDBOX_CREDENTIALS_FILE" "$HOST_KEYCHAIN_CREDENTIALS_JSON" 2>/dev/null || true
   else
-    rm -f "$ACTIVE_SANDBOX_CREDENTIALS_FILE" 2>/dev/null || true
+    remove_private_path "$ACTIVE_SANDBOX_CREDENTIALS_FILE"
   fi
 }
 
 sync_host_codex_state() {
+  sanitize_private_file_path "$ACTIVE_SANDBOX_CODEX_AUTH_FILE"
+  sanitize_private_file_path "$ACTIVE_SANDBOX_CODEX_DIR/config.toml"
+
   if [ -s "$HOST_CODEX_AUTH_FILE" ]; then
-    cp "$HOST_CODEX_AUTH_FILE" "$ACTIVE_SANDBOX_CODEX_AUTH_FILE" 2>/dev/null || true
-    chmod 600 "$ACTIVE_SANDBOX_CODEX_AUTH_FILE" 2>/dev/null || true
+    write_private_file_from_file "$HOST_CODEX_AUTH_FILE" "$ACTIVE_SANDBOX_CODEX_AUTH_FILE" 2>/dev/null || true
   else
-    rm -f "$ACTIVE_SANDBOX_CODEX_AUTH_FILE" 2>/dev/null || true
+    remove_private_path "$ACTIVE_SANDBOX_CODEX_AUTH_FILE"
   fi
 
   if [ -s "$HOST_CODEX_CONFIG_FILE" ]; then
-    cp "$HOST_CODEX_CONFIG_FILE" "$ACTIVE_SANDBOX_CODEX_DIR/config.toml" 2>/dev/null || true
-    chmod 600 "$ACTIVE_SANDBOX_CODEX_DIR/config.toml" 2>/dev/null || true
+    write_private_file_from_file "$HOST_CODEX_CONFIG_FILE" "$ACTIVE_SANDBOX_CODEX_DIR/config.toml" 2>/dev/null || true
   elif [ ! -e "$ACTIVE_SANDBOX_CODEX_DIR/config.toml" ]; then
-    : > "$ACTIVE_SANDBOX_CODEX_DIR/config.toml"
-    chmod 600 "$ACTIVE_SANDBOX_CODEX_DIR/config.toml" 2>/dev/null || true
+    write_private_file_content "$ACTIVE_SANDBOX_CODEX_DIR/config.toml" "" 2>/dev/null || true
   fi
 }
 
@@ -335,7 +435,10 @@ sync_host_plugins() {
   for metadata_file in known_marketplaces.json installed_plugins.json; do
     if [ -f "$HOST_CLAUDE_DIR/plugins/$metadata_file" ]; then
       content=$(<"$HOST_CLAUDE_DIR/plugins/$metadata_file")
-      printf '%s\n' "${content//$HOME//home/claude}" > "$ACTIVE_SANDBOX_PLUGINS_DIR/$metadata_file" 2>/dev/null || true
+      write_private_file_content "$ACTIVE_SANDBOX_PLUGINS_DIR/$metadata_file" \
+        "${content//$HOME//home/claude}" 2>/dev/null || true
+    else
+      remove_private_path "$ACTIVE_SANDBOX_PLUGINS_DIR/$metadata_file"
     fi
   done
 }
@@ -350,18 +453,18 @@ use_authless_sandbox_state() {
   ACTIVE_SANDBOX_CODEX_DIR="$AUTHLESS_CODEX_DIR"
   ACTIVE_SANDBOX_CODEX_AUTH_FILE="$AUTHLESS_CODEX_DIR/auth.json"
 
-  rm -rf "$AUTHLESS_DOTCONFIG_DIR" "$AUTHLESS_CLAUDE_DIR" \
-    "$AUTHLESS_PLUGINS_DIR" "$AUTHLESS_CODEX_DIR" "$AUTHLESS_CLAUDE_STATE_FILE" \
-    2>/dev/null || true
-  mkdir -p "$AUTHLESS_DOTCONFIG_DIR"
-  mkdir -p "$AUTHLESS_CLAUDE_DIR/plans" "$AUTHLESS_CLAUDE_DIR/runtime"
-  mkdir -p "$AUTHLESS_PLUGINS_DIR"
-  mkdir -p "$AUTHLESS_CODEX_DIR/runtime" "$AUTHLESS_CODEX_DIR/sessions" \
-    "$AUTHLESS_CODEX_DIR/log" "$AUTHLESS_CODEX_DIR/tmp"
-  printf '%s\n' '{}' > "$AUTHLESS_CLAUDE_STATE_FILE"
-  chmod 600 "$AUTHLESS_CLAUDE_STATE_FILE" 2>/dev/null || true
-  : > "$AUTHLESS_CODEX_DIR/config.toml"
-  chmod 600 "$AUTHLESS_CODEX_DIR/config.toml" 2>/dev/null || true
+  reset_private_dir "$AUTHLESS_DOTCONFIG_DIR"
+  reset_private_dir "$AUTHLESS_CLAUDE_DIR"
+  ensure_private_dir "$AUTHLESS_CLAUDE_DIR/plans"
+  ensure_private_dir "$AUTHLESS_CLAUDE_DIR/runtime"
+  reset_private_dir "$AUTHLESS_PLUGINS_DIR"
+  reset_private_dir "$AUTHLESS_CODEX_DIR"
+  ensure_private_dir "$AUTHLESS_CODEX_DIR/runtime"
+  ensure_private_dir "$AUTHLESS_CODEX_DIR/sessions"
+  ensure_private_dir "$AUTHLESS_CODEX_DIR/log"
+  ensure_private_dir "$AUTHLESS_CODEX_DIR/tmp"
+  write_private_file_content "$AUTHLESS_CLAUDE_STATE_FILE" "{}"
+  write_private_file_content "$AUTHLESS_CODEX_DIR/config.toml" ""
 }
 
 prepare_sandbox_state() {
@@ -383,8 +486,9 @@ prepare_sandbox_non_auth_state() {
     sync_host_plugins
   fi
   # Claude Code expects valid JSON in the mirrored state file.
+  sanitize_private_file_path "$ACTIVE_SANDBOX_CLAUDE_STATE_FILE"
   if [ ! -s "$ACTIVE_SANDBOX_CLAUDE_STATE_FILE" ]; then
-    echo '{}' > "$ACTIVE_SANDBOX_CLAUDE_STATE_FILE"
+    write_private_file_content "$ACTIVE_SANDBOX_CLAUDE_STATE_FILE" "{}"
   fi
   chmod 600 "$ACTIVE_SANDBOX_CLAUDE_STATE_FILE" 2>/dev/null || true
 }
@@ -784,7 +888,7 @@ is_project_trusted() {
 
 trust_project() {
   local record
-  mkdir -p "$TRUSTED_PROJECTS_DIR"
+  ensure_private_dir "$TRUSTED_PROJECTS_DIR"
   record="$(trusted_project_record)"
   printf '%s' "$workdir" > "$record"
   chmod 600 "$record" 2>/dev/null || true
@@ -1075,7 +1179,8 @@ project_runtime_args=()
 if [ -f ".agentbox.Dockerfile" ]; then
   if [ "$allow_project_dockerfile" != true ]; then
     error_block "Refusing to build repo-controlled .agentbox.Dockerfile without explicit opt-in." \
-      "Review the Dockerfile, then retry with --allow-project-dockerfile if you trust this project."
+      "Review it as full runtime trust: it can replace shells, libraries, and agent binaries." \
+      "Retry with --allow-project-dockerfile only if you trust this project."
     exit 1
   fi
   if [ ! -f "$TRUSTED_ENTRYPOINT_FILE" ]; then
@@ -1095,7 +1200,7 @@ if [ -f ".agentbox.Dockerfile" ]; then
     cmd_args=(/home/claude/entrypoint.sh ${cmd_args[@]+"${cmd_args[@]}"})
   fi
   if [ "$dry_run" = true ]; then
-    project_image_note="Per-project image build allowed by --allow-project-dockerfile; dry-run skips the build and uses $run_image with the trusted entrypoint."
+    project_image_note="Per-project image build allowed by --allow-project-dockerfile; dry-run skips the build. Treat $run_image as full runtime trust even though agentbox forces UID 1000 and the host-controlled entrypoint."
   fi
 fi
 
@@ -1133,8 +1238,7 @@ if [ "$audit_log" = "true" ]; then
   container_name="agentbox-$(date +%s)-$$"
   container_args+=(--name "$container_name")
   # Ensure the logs directory exists for session log dumps
-  mkdir -p ~/.agentbox/logs
-  chmod 700 ~/.agentbox/logs 2>/dev/null || true
+  ensure_private_dir "$AGENTBOX_STATE_DIR/logs"
 else
   # Auto-remove container on exit for zero disk overhead
   container_args+=(--rm)
@@ -1264,7 +1368,7 @@ if [ "$audit_log" = "true" ]; then
   "${docker_cmd[@]}" || exit_code=$?
 
   # Dump the container's stdout/stderr to a log file for audit review
-  log_file=~/.agentbox/logs/${container_name}.log
+  log_file=$AGENTBOX_STATE_DIR/logs/${container_name}.log
   old_umask=$(umask)
   umask 077
   docker logs "$container_name" > "$log_file" 2>&1 || true

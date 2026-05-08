@@ -118,7 +118,7 @@ Supported profile fields include `mounts`, `ports`, `network`, `audit_log`, `cpu
 - The current project is mounted at the same canonical path inside the container. The `.git` directory is mounted read-only, and host git credentials are not available.
 - Sandbox agent state lives under `~/.agentbox/`, including installed CLI files, mirrored Claude and Codex auth/config, Claude plugin mirrors, logs, seccomp profile, and the trusted entrypoint.
 - Host auth is the source of truth. For trusted or networked launches, agentbox refreshes sandbox auth from host Claude or Codex config before launch, or passes `OPENAI_API_KEY` through for Codex when set. Untrusted `network: "none"` launches use a reset authless runtime state.
-- A project-local `.agentbox.Dockerfile` can add dependencies, but it is used only when the launch includes `--allow-project-dockerfile`.
+- A project-local `.agentbox.Dockerfile` can add dependencies, but it is used only when the launch includes `--allow-project-dockerfile`. Treat that flag as full runtime trust because the project image can replace shells, libraries, and agent binaries.
 - `entrypoint.sh` writes runtime sandbox-awareness files (`CLAUDE.md` for Claude and `AGENTS.md` for Codex) so the selected agent sees the active mounts, blocked paths, network mode, and resource limits.
 - See [SECURITY.md](SECURITY.md) for the isolation model, known boundaries, and reporting instructions.
 

@@ -1152,6 +1152,65 @@ assert_equals "$synced_refresh_token" "host-refresh" "host credentials file mirr
 
 teardown_test_dir
 
+# --- Test: State sync does not follow sandbox-planted symlinks ---
+echo ""
+echo "--- State Sync Symlink Safety ---"
+
+setup_test_dir
+
+setup_fake_home
+fake_home="$LAST_FAKE_HOME"
+setup_fake_docker
+setup_fake_security
+
+mkdir -p "$fake_home/.claude/plugins/cache/example-market/example-plugin"
+mkdir -p "$fake_home/.agentbox/claude-config" "$fake_home/.agentbox/plugins"
+
+cat > "$fake_home/.claude.json" << 'EOF'
+{"hostState":true}
+EOF
+cat > "$fake_home/.claude/.credentials.json" << 'EOF'
+{"claudeAiOauth":{"accessToken":"host-access","refreshToken":"host-refresh","expiresAt":123}}
+EOF
+printf '%s\n' 'host-plugin' > "$fake_home/.claude/plugins/cache/example-market/example-plugin/plugin.js"
+
+credential_target="$TEST_DIR/credential-target.json"
+state_target="$TEST_DIR/state-target.json"
+plugin_target="$TEST_DIR/plugin-target"
+printf '%s\n' 'do-not-overwrite-credential' > "$credential_target"
+printf '%s\n' 'do-not-overwrite-state' > "$state_target"
+mkdir -p "$plugin_target"
+
+ln -s "$credential_target" "$fake_home/.agentbox/claude-config/.credentials.json"
+ln -s "$state_target" "$fake_home/.agentbox/.claude.json"
+ln -s "$plugin_target" "$fake_home/.agentbox/plugins/cache"
+
+HOME="$fake_home" "$PROCESSED_TEMPLATE" trust >/dev/null 2>&1
+HOME="$fake_home" PATH="$FAKE_TOOLS_PATH" "$PROCESSED_TEMPLATE" --claude -p "hello" >/dev/null 2>&1 || true
+
+assert_equals "$(<"$credential_target")" "do-not-overwrite-credential" "credential sync does not follow planted file symlink"
+assert_equals "$(<"$state_target")" "do-not-overwrite-state" "state sync does not follow planted file symlink"
+assert_not_contains "$(find "$plugin_target" -maxdepth 2 -type f -print 2>/dev/null || true)" "plugin.js" "plugin sync does not follow planted directory symlink"
+if [ ! -L "$fake_home/.agentbox/claude-config/.credentials.json" ]; then
+  pass "credential symlink replaced with private file"
+else
+  fail "credential symlink replaced with private file"
+fi
+if [ ! -L "$fake_home/.agentbox/.claude.json" ]; then
+  pass "state symlink replaced with private file"
+else
+  fail "state symlink replaced with private file"
+fi
+if [ ! -L "$fake_home/.agentbox/plugins/cache" ] && [ -f "$fake_home/.agentbox/plugins/cache/example-market/example-plugin/plugin.js" ]; then
+  pass "plugin cache symlink replaced with private directory"
+else
+  fail "plugin cache symlink replaced with private directory"
+fi
+assert_equals "$(file_mode "$fake_home/.agentbox")" "700" "agentbox state root is private"
+assert_equals "$(file_mode "$fake_home/.agentbox/claude-config")" "700" "claude state directory is private"
+
+teardown_test_dir
+
 # --- Test: Host keychain credentials sync ---
 echo ""
 echo "--- Host Keychain Credentials Sync ---"
