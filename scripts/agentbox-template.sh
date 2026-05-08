@@ -107,6 +107,12 @@ AUTHLESS_CLAUDE_DIR="$AUTHLESS_STATE_DIR/claude-config"
 AUTHLESS_PLUGINS_DIR="$AUTHLESS_STATE_DIR/plugins"
 AUTHLESS_CLAUDE_STATE_FILE="$AUTHLESS_STATE_DIR/.claude.json"
 AUTHLESS_CODEX_DIR="$AUTHLESS_STATE_DIR/codex-config"
+EMPTY_RUNTIME_STATE_DIR="$AGENTBOX_STATE_DIR/empty-runtime"
+EMPTY_DOTCONFIG_DIR="$EMPTY_RUNTIME_STATE_DIR/claude-dotconfig"
+EMPTY_CLAUDE_DIR="$EMPTY_RUNTIME_STATE_DIR/claude-config"
+EMPTY_PLUGINS_DIR="$EMPTY_RUNTIME_STATE_DIR/plugins"
+EMPTY_CLAUDE_STATE_FILE="$EMPTY_RUNTIME_STATE_DIR/.claude.json"
+EMPTY_CODEX_DIR="$EMPTY_RUNTIME_STATE_DIR/codex-config"
 KEYCHAIN_AUTH_ERROR=""
 HOST_KEYCHAIN_CREDENTIALS_JSON=""
 auth_state_mode="host"
@@ -117,6 +123,11 @@ ACTIVE_SANDBOX_PLUGINS_DIR="$SANDBOX_PLUGINS_DIR"
 ACTIVE_SANDBOX_CLAUDE_STATE_FILE="$SANDBOX_CLAUDE_STATE_FILE"
 ACTIVE_SANDBOX_CODEX_DIR="$SANDBOX_CODEX_DIR"
 ACTIVE_SANDBOX_CODEX_AUTH_FILE="$SANDBOX_CODEX_AUTH_FILE"
+MOUNT_SANDBOX_DOTCONFIG_DIR="$SANDBOX_DOTCONFIG_DIR"
+MOUNT_SANDBOX_CLAUDE_DIR="$SANDBOX_CLAUDE_DIR"
+MOUNT_SANDBOX_PLUGINS_DIR="$SANDBOX_PLUGINS_DIR"
+MOUNT_SANDBOX_CLAUDE_STATE_FILE="$SANDBOX_CLAUDE_STATE_FILE"
+MOUNT_SANDBOX_CODEX_DIR="$SANDBOX_CODEX_DIR"
 
 ensure_state_root() {
   if [ -L "$AGENTBOX_STATE_DIR" ]; then
@@ -414,14 +425,26 @@ sync_host_codex_state() {
   fi
 }
 
+ensure_claude_md_link_for() {
+  local claude_dir="$1"
+
+  rm -rf "$claude_dir/CLAUDE.md"
+  ln -s "runtime/CLAUDE.md" "$claude_dir/CLAUDE.md"
+}
+
+ensure_codex_agents_link_for() {
+  local codex_dir="$1"
+
+  rm -rf "$codex_dir/AGENTS.md"
+  ln -s "runtime/AGENTS.md" "$codex_dir/AGENTS.md"
+}
+
 ensure_runtime_claude_md_link() {
-  rm -rf "$ACTIVE_SANDBOX_CLAUDE_DIR/CLAUDE.md"
-  ln -s "runtime/CLAUDE.md" "$ACTIVE_SANDBOX_CLAUDE_DIR/CLAUDE.md"
+  ensure_claude_md_link_for "$ACTIVE_SANDBOX_CLAUDE_DIR"
 }
 
 ensure_runtime_codex_agents_link() {
-  rm -rf "$ACTIVE_SANDBOX_CODEX_DIR/AGENTS.md"
-  ln -s "runtime/AGENTS.md" "$ACTIVE_SANDBOX_CODEX_DIR/AGENTS.md"
+  ensure_codex_agents_link_for "$ACTIVE_SANDBOX_CODEX_DIR"
 }
 
 sync_host_plugins() {
@@ -491,6 +514,44 @@ prepare_sandbox_non_auth_state() {
     write_private_file_content "$ACTIVE_SANDBOX_CLAUDE_STATE_FILE" "{}"
   fi
   chmod 600 "$ACTIVE_SANDBOX_CLAUDE_STATE_FILE" 2>/dev/null || true
+}
+
+prepare_empty_runtime_state() {
+  reset_private_dir "$EMPTY_RUNTIME_STATE_DIR"
+  ensure_private_dir "$EMPTY_DOTCONFIG_DIR"
+  ensure_private_dir "$EMPTY_CLAUDE_DIR"
+  ensure_private_dir "$EMPTY_CLAUDE_DIR/plans"
+  ensure_private_dir "$EMPTY_CLAUDE_DIR/runtime"
+  ensure_private_dir "$EMPTY_PLUGINS_DIR"
+  ensure_private_dir "$EMPTY_CODEX_DIR"
+  ensure_private_dir "$EMPTY_CODEX_DIR/runtime"
+  ensure_private_dir "$EMPTY_CODEX_DIR/sessions"
+  ensure_private_dir "$EMPTY_CODEX_DIR/log"
+  ensure_private_dir "$EMPTY_CODEX_DIR/tmp"
+  write_private_file_content "$EMPTY_CLAUDE_STATE_FILE" "{}"
+  write_private_file_content "$EMPTY_CODEX_DIR/config.toml" ""
+  ensure_claude_md_link_for "$EMPTY_CLAUDE_DIR"
+  ensure_codex_agents_link_for "$EMPTY_CODEX_DIR"
+}
+
+select_runtime_mounts() {
+  MOUNT_SANDBOX_DOTCONFIG_DIR="$ACTIVE_SANDBOX_DOTCONFIG_DIR"
+  MOUNT_SANDBOX_CLAUDE_DIR="$ACTIVE_SANDBOX_CLAUDE_DIR"
+  MOUNT_SANDBOX_PLUGINS_DIR="$ACTIVE_SANDBOX_PLUGINS_DIR"
+  MOUNT_SANDBOX_CLAUDE_STATE_FILE="$ACTIVE_SANDBOX_CLAUDE_STATE_FILE"
+  MOUNT_SANDBOX_CODEX_DIR="$ACTIVE_SANDBOX_CODEX_DIR"
+
+  case "$agent_runtime" in
+    claude)
+      MOUNT_SANDBOX_CODEX_DIR="$EMPTY_CODEX_DIR"
+      ;;
+    codex)
+      MOUNT_SANDBOX_DOTCONFIG_DIR="$EMPTY_DOTCONFIG_DIR"
+      MOUNT_SANDBOX_CLAUDE_DIR="$EMPTY_CLAUDE_DIR"
+      MOUNT_SANDBOX_PLUGINS_DIR="$EMPTY_PLUGINS_DIR"
+      MOUNT_SANDBOX_CLAUDE_STATE_FILE="$EMPTY_CLAUDE_STATE_FILE"
+      ;;
+  esac
 }
 
 # --- Argument parsing ---
@@ -983,7 +1044,7 @@ if [ -f ".agentbox.json" ]; then
       # Produces a normalized JSON object with mounts, ports, and scalar options.
       profile_config=$(jq -r --arg p "$profile_name" '
         .[($p)] | {
-          mounts: [(.mounts // [])[] | .path + ":" + .path + (if .readonly then ":ro" else "" end)],
+          mounts: [(.mounts // [])[] | {path: .path, readonly: (.readonly // false)}],
           ports: [(.ports // [])[] | (.host|tostring) + ":" + (.container|tostring)],
           network: (.network // "bridge"),
           audit_log: (.audit_log // false),
@@ -1001,17 +1062,28 @@ if [ -f ".agentbox.json" ]; then
       fi
 
       # Parse mount specifications and validate each one
-      while IFS= read -r mount_spec; do
+      while IFS= read -r mount_json; do
         # Skip empty lines from jq output
-        [ -z "$mount_spec" ] && continue
-        # Extract the host path (everything before the first colon)
-        mount_path="${mount_spec%%:*}"
+        [ -z "$mount_json" ] && continue
+        mount_path_type=$(printf '%s' "$mount_json" | jq -r '.path | type')
+        if [ "$mount_path_type" != "string" ]; then
+          warn "Skipping mount with invalid path"
+          continue
+        fi
+        readonly_type=$(printf '%s' "$mount_json" | jq -r '.readonly | type')
+        if [ "$readonly_type" != "boolean" ]; then
+          warn "Skipping mount with invalid readonly flag"
+          continue
+        fi
+        mount_path=$(printf '%s' "$mount_json" | jq -r '.path')
         mount_readonly=false
-        [[ "$mount_spec" == *":ro" ]] && mount_readonly=true
+        if printf '%s' "$mount_json" | jq -e '.readonly == true' >/dev/null; then
+          mount_readonly=true
+        fi
         # Normalize path once for blocklist checks
         normalized_path=$(normalize_path "$mount_path")
-        # Reject paths with multiple colons (ambiguous Docker mount syntax)
-        if [[ "$mount_spec" == *":"*":"*":"* ]]; then
+        # Reject paths with colons (ambiguous Docker mount syntax)
+        if [[ "$mount_path" == *:* ]]; then
           warn "Skipping mount path containing ':': $mount_path"
         # Reject paths with path traversal sequences (../)
         elif [[ "$mount_path" =~ (^|/)\.\.($|/) ]]; then
@@ -1050,7 +1122,7 @@ if [ -f ".agentbox.json" ]; then
             extra_mounts_info+="- \`$normalized_path\` (read-write)"$'\n'
           fi
         fi
-      done < <(echo "$profile_config" | jq -r '.mounts[]')
+      done < <(echo "$profile_config" | jq -c '.mounts[]')
 
       # Parse port specifications and validate ranges
       while IFS= read -r port_spec; do
@@ -1142,6 +1214,8 @@ if [ "$dry_run" != true ]; then
 else
   prepare_sandbox_non_auth_state
 fi
+prepare_empty_runtime_state
+select_runtime_mounts
 
 # --- Resource limit validation ---
 if [ -n "${profile_cpu:-}" ] && ! [[ "$profile_cpu" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
@@ -1282,7 +1356,7 @@ docker_cmd=(
   --tmpfs "/tmp:rw,nosuid,size=$TMPFS_TMP_SIZE"
   --tmpfs "/home/claude/.cache:rw,nosuid,size=$TMPFS_CACHE_SIZE"
   --tmpfs "/home/claude/.npm:rw,nosuid,size=$TMPFS_NPM_SIZE"
-  -v "$ACTIVE_SANDBOX_DOTCONFIG_DIR:/home/claude/.config${ro_suffix}"
+  -v "$MOUNT_SANDBOX_DOTCONFIG_DIR:/home/claude/.config${ro_suffix}"
   --tmpfs "/home/claude/.local:rw,nosuid,size=$TMPFS_LOCAL_SIZE,uid=1000,gid=1000"
   # Apply resource limits (if configured in profile)
   ${resource_args[@]+"${resource_args[@]}"}
@@ -1303,15 +1377,15 @@ docker_cmd=(
   -v "${workdir}:${workdir}${ro_suffix}"
   # Mount the sandbox mirror of Claude's ~/.claude directory. Auth is refreshed
   # from the host before launch, but subsequent writes stay isolated to agentbox.
-  -v "$ACTIVE_SANDBOX_CLAUDE_DIR:/home/claude/.claude${ro_suffix}"
+  -v "$MOUNT_SANDBOX_CLAUDE_DIR:/home/claude/.claude${ro_suffix}"
   # Keep sandbox-awareness CLAUDE.md writable via a tmpfs-backed runtime path.
   --tmpfs "/home/claude/.claude/runtime:rw,nosuid,size=16m,uid=1000,gid=1000"
   # Mount the sandbox mirror of Claude's JSON state file.
-  -v "$ACTIVE_SANDBOX_CLAUDE_STATE_FILE:/home/claude/.claude.json${ro_suffix}"
+  -v "$MOUNT_SANDBOX_CLAUDE_STATE_FILE:/home/claude/.claude.json${ro_suffix}"
   # Mount sandbox plugins directory (isolated from host ~/.claude/plugins/)
-  -v "$ACTIVE_SANDBOX_PLUGINS_DIR:/home/claude/.claude/plugins${ro_suffix}"
+  -v "$MOUNT_SANDBOX_PLUGINS_DIR:/home/claude/.claude/plugins${ro_suffix}"
   # Mount the sandbox mirror of Codex state/config/auth.
-  -v "$ACTIVE_SANDBOX_CODEX_DIR:/home/claude/.codex${ro_suffix}"
+  -v "$MOUNT_SANDBOX_CODEX_DIR:/home/claude/.codex${ro_suffix}"
   # Keep sandbox-awareness Codex AGENTS.md writable via tmpfs-backed runtime path.
   --tmpfs "/home/claude/.codex/runtime:rw,nosuid,size=16m,uid=1000,gid=1000"
   # Add readonly mode tmpfs overlay (plans directory) when enabled

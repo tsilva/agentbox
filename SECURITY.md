@@ -19,7 +19,7 @@ agentbox runs Claude Code inside a Docker container with:
 
 - **Network access**: The container has unrestricted network access by default after the project path is trusted. Claude Code can make arbitrary HTTP requests, install packages, and communicate with external services.
 - **Mounted directories**: Any mounted path (working directory, extra mounts) is fully writable unless mounted read-only. With `--readonly`, agentbox-managed host mirrors are also mounted read-only.
-- **Claude credentials**: Your Claude authentication tokens are mounted into trusted networked containers. Trust is stored outside the repo under `~/.agentbox/trusted-projects`, so `.agentbox.json` cannot self-authorize a project.
+- **Selected runtime credentials**: Your selected Claude or Codex authentication state is mounted into trusted networked containers. The inactive runtime receives empty sandbox state. Trust is stored outside the repo under `~/.agentbox/trusted-projects`, so `.agentbox.json` cannot self-authorize a project.
 
 ## `--dangerously-skip-permissions`
 
@@ -47,7 +47,7 @@ When a project Dockerfile is allowed, agentbox forces the runtime back to UID 10
 
 ## Project Trust
 
-Networked launches expose Claude credentials inside the container so Claude Code can authenticate. agentbox requires explicit host-side trust before that combination is allowed:
+Networked launches expose the selected runtime's credentials inside the container so Claude Code or Codex can authenticate. agentbox requires explicit host-side trust before that combination is allowed:
 
 ```bash
 agentbox trust

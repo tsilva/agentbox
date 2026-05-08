@@ -216,6 +216,13 @@ output=$("$PROCESSED_TEMPLATE" --claude --dry-run --profile dev 2>&1 || true)
 # Raw control characters make the JSON invalid before mount validation runs.
 assert_contains "$output" "Invalid .agentbox.json" "control chars in path rejected"
 
+# Test: JSON-escaped control characters should be rejected before mount parsing
+escaped_control_path="${path_test_root}/safe"$'\n'"${path_test_root}/also-safe"
+jq -n --arg p "$escaped_control_path" '{"dev":{"mounts":[{"path":$p}]}}' > .agentbox.json
+output=$("$PROCESSED_TEMPLATE" --claude --dry-run --profile dev 2>&1 || true)
+assert_contains "$output" "invalid characters" "escaped control chars in path rejected"
+assert_not_contains "$output" "${path_test_root}/also-safe:${path_test_root}/also-safe" "escaped newline does not create second mount"
+
 # Test: Multiple colons in path should be rejected (Docker mount syntax ambiguity)
 colon_path="${path_test_root}/a:b:c"
 cat > .agentbox.json << EOF
@@ -759,6 +766,18 @@ assert_contains "$output" "AGENTBOX_RUNTIME=codex" "codex dry-run passes runtime
 assert_contains "$output" "CODEX_HOME=/home/claude/.codex" "codex dry-run sets CODEX_HOME"
 assert_contains "$output" "/home/claude/.codex" "codex dry-run mounts codex state"
 assert_contains "$output" "exec hello\\ codex" "codex -p translates to exec prompt"
+
+setup_fake_home
+runtime_home="$LAST_FAKE_HOME"
+output=$(HOME="$runtime_home" "$PROCESSED_TEMPLATE" --codex --dry-run -p "hello codex" 2>&1)
+assert_contains "$output" "$runtime_home/.agentbox/empty-runtime/claude-config:/home/claude/.claude" "codex run mounts empty Claude state"
+assert_not_contains "$output" "$runtime_home/.agentbox/claude-config:/home/claude/.claude" "codex run does not mount Claude credential state"
+assert_contains "$output" "$runtime_home/.agentbox/codex-config:/home/claude/.codex" "codex run mounts Codex state"
+
+output=$(HOME="$runtime_home" "$PROCESSED_TEMPLATE" --claude --dry-run -p "hello claude" 2>&1)
+assert_contains "$output" "$runtime_home/.agentbox/claude-config:/home/claude/.claude" "claude run mounts Claude state"
+assert_contains "$output" "$runtime_home/.agentbox/empty-runtime/codex-config:/home/claude/.codex" "claude run mounts empty Codex state"
+assert_not_contains "$output" "$runtime_home/.agentbox/codex-config:/home/claude/.codex" "claude run does not mount Codex credential state"
 
 rm -rf "$test_dryrun_mount" 2>/dev/null || true
 
