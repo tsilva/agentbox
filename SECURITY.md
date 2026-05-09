@@ -20,8 +20,8 @@ agentbox runs Claude Code inside a Docker container with:
 
 - **Network access**: The container has unrestricted network access by default after the project path is trusted. Claude Code can make arbitrary HTTP requests, install packages, and communicate with external services.
 - **Mounted directories**: Any mounted path (working directory, extra mounts) is fully writable unless mounted read-only. With `--readonly`, agentbox-managed host mirrors are also mounted read-only.
-- **Selected runtime credentials**: Your selected Claude or Codex authentication state is mounted into trusted networked containers. The inactive runtime receives empty sandbox state. Trust is stored outside the repo under `~/.agentbox/trusted-projects`, so `.agentbox.json` cannot self-authorize a project.
-- **Image build inputs**: The base image and bundled agent CLIs are fetched during image build. Downloads are protected by TLS and release checksums, but the build intentionally tracks upstream releases instead of being fully reproducible from checked-in digests.
+- **Selected runtime credentials**: Your selected Claude or Codex authentication state is mounted into trusted networked containers. The inactive runtime receives empty sandbox state. Trust is stored outside the repo under `~/.agentbox/trusted-projects`, and records include project path, filesystem identity, git identity, remote URL, and agentbox config digests so `.agentbox.json` cannot self-authorize or silently replace a trusted project.
+- **Image build inputs**: The default build tracks upstream base image and agent releases. Downloads are protected by TLS and release checksums. For reproducible installs, run `./install.sh --locked` with `AGENTBOX_BASE_IMAGE` including an `@sha256:` digest plus explicit Claude/Codex versions and SHA-256 hashes.
 
 ## `--dangerously-skip-permissions`
 
@@ -59,10 +59,12 @@ agentbox untrust
 
 `network: "none"` can run without project trust. In that untrusted offline mode, agentbox uses a freshly reset authless runtime state instead of mounting mirrored Claude/Codex credentials or plugin state. Claude Code will not be able to reach Anthropic services in that mode.
 
+Trust records fail closed when project identity changes. Re-run `agentbox trust` after intentionally replacing the checkout, moving `.git`, changing the remote URL, or changing `.agentbox.json` / `.agentbox.Dockerfile`.
+
 ## Recommendations
 
 - Avoid mounting sensitive directories (SSH keys, credentials, etc.)
-- Use canonical paths directly for the working directory and extra mounts (`pwd -P` is useful here)
+- Use absolute canonical paths directly for the working directory and extra mounts (`pwd -P` is useful here)
 - Use read-only mounts where possible
 - Review `.agentbox.json` profiles before use
 - Run `agentbox trust` only after reviewing a project you intend to run with network access

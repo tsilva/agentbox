@@ -24,6 +24,17 @@ cd agentbox
 ./install.sh
 ```
 
+For reproducible installs, use locked mode with immutable inputs:
+
+```bash
+AGENTBOX_BASE_IMAGE='debian:stable-slim@sha256:<digest>' \
+AGENTBOX_CLAUDE_CODE_VERSION='<version>' \
+AGENTBOX_CLAUDE_CODE_SHA256='<sha256>' \
+AGENTBOX_CODEX_RELEASE_TAG='<tag>' \
+AGENTBOX_CODEX_SHA256='<sha256>' \
+./install.sh --locked
+```
+
 Reload your shell, or update `PATH` for the current session:
 
 ```bash
@@ -58,7 +69,7 @@ agentbox --codex                             # start Codex in the sandbox
 agentbox --codex -p "explain this code"      # run Codex non-interactively
 agentbox --runtime codex exec "run tests"    # pass native Codex subcommands
 
-agentbox trust                               # trust the current canonical project path
+agentbox trust                               # trust the current canonical project identity
 agentbox trust --list                        # list trusted project paths
 agentbox untrust                             # remove trust for the current project path
 
@@ -114,8 +125,9 @@ Supported profile fields include `mounts`, `ports`, `network`, `audit_log`, `cpu
 ## Notes
 
 - `jq` is required only when `.agentbox.json` exists. If it is missing, agentbox exits instead of ignoring profile security settings.
-- Project paths and extra mounts must be absolute canonical paths. Symlink hops are rejected; use `pwd -P` if needed.
+- Project paths and extra mounts must be absolute canonical paths without symlink hops, control characters, or `:` characters; use `pwd -P` if needed.
 - The current project is mounted at the same canonical path inside the container. The `.git` directory is mounted read-only, and host git credentials are not available.
+- Project trust records include path, filesystem identity, git identity, remote URL, and `.agentbox.json`/`.agentbox.Dockerfile` digests. Re-run `agentbox trust` after intentionally changing those trust inputs.
 - Sandbox agent state lives under `~/.agentbox/`, including installed CLI files, mirrored Claude and Codex auth/config, Claude plugin mirrors, logs, seccomp profile, and the trusted entrypoint.
 - Host auth is the source of truth. For trusted or networked launches, agentbox refreshes sandbox auth only for the selected runtime from host Claude or Codex config before launch, or passes `OPENAI_API_KEY` through for Codex when set. The inactive runtime receives empty sandbox state. Untrusted `network: "none"` launches use a reset authless runtime state.
 - A project-local `.agentbox.Dockerfile` can add dependencies, but it is used only when the launch includes `--allow-project-dockerfile`. Treat that flag as full runtime trust because the project image can replace shells, libraries, and agent binaries.

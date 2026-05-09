@@ -5,7 +5,8 @@
 
 # --- Base Image ---
 # Debian stable-slim: minimal footprint while providing a full apt ecosystem.
-FROM debian:stable-slim
+ARG BASE_IMAGE=debian:stable-slim
+FROM ${BASE_IMAGE}
 
 # --- OCI Metadata ---
 LABEL org.opencontainers.image.title="agentbox" \
@@ -113,5 +114,13 @@ ENTRYPOINT ["/home/claude/entrypoint.sh"]
 # invalidates the agent download layer, not the
 # uv/pytest/entrypoint layers above which rarely change.
 ARG CACHE_BUST=stable
+ARG CLAUDE_CODE_VERSION=latest
+ARG CLAUDE_CODE_SHA256=
+ARG CODEX_RELEASE_TAG=latest
+ARG CODEX_SHA256=
 COPY --chmod=755 --chown=claude:claude scripts/install-agent-clis.sh /tmp/install-agent-clis.sh
-RUN /tmp/install-agent-clis.sh && rm /tmp/install-agent-clis.sh
+RUN CLAUDE_CODE_VERSION="$CLAUDE_CODE_VERSION" \
+    CLAUDE_CODE_SHA256="$CLAUDE_CODE_SHA256" \
+    CODEX_RELEASE_TAG="$CODEX_RELEASE_TAG" \
+    CODEX_SHA256="$CODEX_SHA256" \
+    /tmp/install-agent-clis.sh && rm /tmp/install-agent-clis.sh

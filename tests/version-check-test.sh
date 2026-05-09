@@ -52,6 +52,7 @@ cleanup() {
 trap cleanup EXIT
 
 mkdir -p "$HOME/.agentbox"
+cp "$REPO_ROOT/scripts/seccomp.json" "$HOME/.agentbox/seccomp.json"
 
 # --- Test: No warning when version file is missing ---
 echo "--- Missing Version File ---"

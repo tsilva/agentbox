@@ -241,6 +241,15 @@ EOF
 output=$("$PROCESSED_TEMPLATE" --claude --dry-run --profile dev 2>&1 || true)
 assert_contains "$output" "path traversal" "path traversal rejected"
 
+# Test: Relative mount paths should be rejected
+mkdir -p relative-data
+cat > .agentbox.json << 'EOF'
+{"dev":{"mounts":[{"path":"relative-data"}]}}
+EOF
+output=$("$PROCESSED_TEMPLATE" --claude --dry-run --profile dev 2>&1 || true)
+assert_contains "$output" "not absolute" "relative mount path rejected"
+assert_not_contains "$output" "-v relative-data:relative-data" "relative mount not passed to Docker"
+
 # Test: Non-existent path should warn
 cat > .agentbox.json << 'EOF'
 {"dev":{"mounts":[{"path":"/nonexistent/path/that/does/not/exist"}]}}
@@ -823,10 +832,29 @@ setup_test_dir
 
 setup_fake_home
 fake_home="$LAST_FAKE_HOME"
+setup_fake_docker
+setup_fake_security
+mkdir -p "$fake_home/.claude"
+cat > "$fake_home/.claude/.credentials.json" << 'EOF'
+{"claudeAiOauth":{"accessToken":"host-access","refreshToken":"host-refresh","expiresAt":123}}
+EOF
 
 HOME="$fake_home" "$PROCESSED_TEMPLATE" trust >/dev/null 2>&1
 output=$(HOME="$fake_home" "$PROCESSED_TEMPLATE" trust --list 2>&1)
 assert_contains "$output" "$TEST_DIR" "trusted project appears in trust list"
+
+trust_record=$(find "$fake_home/.agentbox/trusted-projects" -type f -print -quit)
+assert_contains "$(<"$trust_record")" "version=2" "trusted project record uses identity format"
+
+git_dir_before=$(git rev-parse --absolute-git-dir)
+rm -rf "$git_dir_before"
+git init -q
+output=$(HOME="$fake_home" PATH="$FAKE_TOOLS_PATH" "$PROCESSED_TEMPLATE" --claude -p "hello" 2>&1 || true)
+if [[ "$output" == *"Project is not trusted for networked Claude credentials"* ]]; then
+  pass "replaced project identity is not trusted"
+else
+  fail "replaced project identity should not stay trusted"
+fi
 
 HOME="$fake_home" "$PROCESSED_TEMPLATE" untrust >/dev/null 2>&1
 output=$(HOME="$fake_home" "$PROCESSED_TEMPLATE" trust --list 2>&1)

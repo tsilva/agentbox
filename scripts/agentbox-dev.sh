@@ -37,6 +37,7 @@ do_build() {
 
   local build_args=()
   local old_id=""
+  local locked_mode=false
   if [ "${1:-}" = "--bust-cache" ]; then
     # Use Claude Code version as cache key so Docker caches the download layer
     # when the version hasn't changed. Fall back to timestamp if fetch fails.
@@ -44,9 +45,29 @@ do_build() {
     cache_key=$(build_cache_bust_key 5)
     build_args+=(--build-arg "CACHE_BUST=$cache_key")
     old_id=$(docker images -q "$IMAGE_NAME:latest" 2>/dev/null || true)
+  elif [ "${1:-}" = "--locked" ]; then
+    for name in AGENTBOX_BASE_IMAGE AGENTBOX_CLAUDE_CODE_VERSION AGENTBOX_CLAUDE_CODE_SHA256 AGENTBOX_CODEX_RELEASE_TAG AGENTBOX_CODEX_SHA256; do
+      if [ -z "${!name:-}" ]; then
+        error "Locked builds require $name"
+        exit 1
+      fi
+    done
+    if [[ "$AGENTBOX_BASE_IMAGE" != *@sha256:* ]]; then
+      error "Locked builds require AGENTBOX_BASE_IMAGE to include an immutable @sha256 digest"
+      exit 1
+    fi
+    locked_mode=true
+    build_args+=(
+      --build-arg "BASE_IMAGE=$AGENTBOX_BASE_IMAGE"
+      --build-arg "CLAUDE_CODE_VERSION=$AGENTBOX_CLAUDE_CODE_VERSION"
+      --build-arg "CLAUDE_CODE_SHA256=$AGENTBOX_CLAUDE_CODE_SHA256"
+      --build-arg "CODEX_RELEASE_TAG=$AGENTBOX_CODEX_RELEASE_TAG"
+      --build-arg "CODEX_SHA256=$AGENTBOX_CODEX_SHA256"
+    )
   fi
 
   step "Building $IMAGE_NAME image"
+  [ "$locked_mode" = true ] && info "Using locked image and agent CLI digests"
   # Build from the repo root which contains the Dockerfile
   docker build ${build_args[@]+"${build_args[@]}"} -t "$IMAGE_NAME" "$REPO_ROOT"
 
@@ -90,7 +111,7 @@ cmd="${1:-}"
 # Dispatch to the appropriate handler based on the command
 case "$cmd" in
   build)
-    do_build
+    do_build "${2:-}"
     ;;
   install)
     exec "$REPO_ROOT/install.sh"

@@ -11,7 +11,10 @@ install_claude_code() {
   local gcs_bucket version arch claude_arch expected_sha actual_sha
 
   gcs_bucket="https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases"
-  version=$(curl -fsSL "$gcs_bucket/latest")
+  version="${CLAUDE_CODE_VERSION:-latest}"
+  if [ "$version" = "latest" ]; then
+    version=$(curl -fsSL "$gcs_bucket/latest")
+  fi
 
   arch=$(uname -m)
   case "$arch" in
@@ -25,7 +28,10 @@ install_claude_code() {
   curl -fsSL --progress-bar -o /opt/claude-code/claude "$gcs_bucket/$version/$claude_arch/claude"
   chmod +x /opt/claude-code/claude
 
-  expected_sha=$(curl -fsSL "$gcs_bucket/$version/manifest.json" | jq -r ".platforms[\"$claude_arch\"].checksum")
+  expected_sha="${CLAUDE_CODE_SHA256:-}"
+  if [ -z "$expected_sha" ]; then
+    expected_sha=$(curl -fsSL "$gcs_bucket/$version/manifest.json" | jq -r ".platforms[\"$claude_arch\"].checksum")
+  fi
   actual_sha=$(sha256sum /opt/claude-code/claude | cut -d' ' -f1)
 
   if [ "$expected_sha" != "$actual_sha" ]; then
@@ -39,9 +45,16 @@ install_claude_code() {
 
 install_codex_cli() {
   local release_api install_dir codex_arch asset_name tmp_dir release_json version
-  local download_url digest expected_sha actual_sha
+  local download_url digest expected_sha actual_sha release_tag
 
-  release_api="${CODEX_RELEASE_API:-https://api.github.com/repos/openai/codex/releases/latest}"
+  release_tag="${CODEX_RELEASE_TAG:-latest}"
+  if [ -n "${CODEX_RELEASE_API:-}" ]; then
+    release_api="$CODEX_RELEASE_API"
+  elif [ "$release_tag" = "latest" ]; then
+    release_api="https://api.github.com/repos/openai/codex/releases/latest"
+  else
+    release_api="https://api.github.com/repos/openai/codex/releases/tags/$release_tag"
+  fi
   install_dir="/opt/codex"
 
   case "$(uname -m)" in
@@ -77,8 +90,12 @@ install_codex_cli() {
 
   curl -fsSL -o "$tmp_dir/$asset_name" "$download_url"
 
-  if [[ "$digest" == sha256:* ]]; then
+  expected_sha="${CODEX_SHA256:-}"
+  if [ -z "$expected_sha" ] && [[ "$digest" == sha256:* ]]; then
     expected_sha="${digest#sha256:}"
+  fi
+
+  if [ -n "$expected_sha" ]; then
     actual_sha=$(sha256sum "$tmp_dir/$asset_name" | awk '{print $1}')
     if [ "$actual_sha" != "$expected_sha" ]; then
       echo "Codex checksum mismatch for $asset_name" >&2

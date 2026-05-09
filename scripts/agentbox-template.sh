@@ -900,6 +900,21 @@ validate_strict_host_path() {
   local normalized physical
 
   normalized=$(normalize_path "$path")
+  if [[ "$normalized" != /* ]]; then
+    error "$label must be an absolute path: $path"
+    [ -n "$note_msg" ] && note "$note_msg"
+    return 1
+  fi
+  if [[ "$normalized" == *:* ]]; then
+    error "$label contains ':' and cannot be used safely in a Docker bind mount: $path"
+    [ -n "$note_msg" ] && note "$note_msg"
+    return 1
+  fi
+  if [[ "$normalized" =~ [[:cntrl:]] ]]; then
+    error "$label contains invalid control characters"
+    [ -n "$note_msg" ] && note "$note_msg"
+    return 1
+  fi
   if is_path_blocked "$normalized"; then
     error "$label blocked (security policy): $path"
     [ -n "$note_msg" ] && note "$note_msg"
@@ -941,17 +956,84 @@ trusted_project_record() {
   printf '%s/%s\n' "$TRUSTED_PROJECTS_DIR" "$(trusted_project_key)"
 }
 
+path_identity() {
+  local path="$1"
+  local identity
+
+  identity=$(stat -f '%d:%i' "$path" 2>/dev/null || true)
+  if [[ "$identity" =~ ^[0-9]+:[0-9]+$ ]]; then
+    printf '%s\n' "$identity"
+    return 0
+  fi
+
+  stat -c '%d:%i' "$path"
+}
+
+file_digest() {
+  local path="$1"
+
+  if [ ! -f "$path" ]; then
+    printf 'absent'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$path" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$path" | awk '{print $1}'
+  else
+    cksum "$path" | awk '{print $1 ":" $2}'
+  fi
+}
+
+project_identity() {
+  local git_top_level git_dir git_origin
+
+  printf 'version=2\n'
+  printf 'path=%s\n' "$workdir"
+  printf 'workdir_id=%s\n' "$(path_identity "$workdir")"
+
+  if git -C "$workdir" rev-parse --show-toplevel >/dev/null 2>&1; then
+    git_top_level="$(cd "$workdir" && git rev-parse --show-toplevel)"
+    git_dir="$(cd "$workdir" && git rev-parse --absolute-git-dir)"
+    git_origin="$(git -C "$workdir" config --get remote.origin.url 2>/dev/null || true)"
+
+    printf 'git_present=true\n'
+    printf 'git_top_level=%s\n' "$git_top_level"
+    printf 'git_top_level_id=%s\n' "$(path_identity "$git_top_level")"
+    printf 'git_dir=%s\n' "$git_dir"
+    printf 'git_dir_id=%s\n' "$(path_identity "$git_dir")"
+    printf 'git_origin=%s\n' "$git_origin"
+  else
+    printf 'git_present=false\n'
+  fi
+
+  printf 'agentbox_json_sha256=%s\n' "$(file_digest "$workdir/.agentbox.json")"
+  printf 'agentbox_dockerfile_sha256=%s\n' "$(file_digest "$workdir/.agentbox.Dockerfile")"
+}
+
+record_project_path() {
+  local record="$1"
+
+  if grep -q '^path=' "$record" 2>/dev/null; then
+    sed -n 's/^path=//p' "$record" | head -n 1
+  else
+    cat "$record"
+  fi
+}
+
 is_project_trusted() {
-  local record
+  local record expected actual
   record="$(trusted_project_record)"
-  [ -f "$record" ] && [ "$(<"$record")" = "$workdir" ]
+  [ -f "$record" ] || return 1
+
+  expected="$(project_identity)"
+  actual="$(cat "$record")"
+  [ "$actual" = "$expected" ]
 }
 
 trust_project() {
   local record
   ensure_private_dir "$TRUSTED_PROJECTS_DIR"
   record="$(trusted_project_record)"
-  printf '%s' "$workdir" > "$record"
+  project_identity > "$record"
   chmod 600 "$record" 2>/dev/null || true
   success "Trusted project: $workdir"
 }
@@ -978,7 +1060,7 @@ list_trusted_projects() {
   records=""
   for record in "$TRUSTED_PROJECTS_DIR"/*; do
     [ -f "$record" ] || continue
-    records+=$(cat "$record")
+    records+=$(record_project_path "$record")
     records+=$'\n'
   done
 
@@ -1083,7 +1165,9 @@ if [ -f ".agentbox.json" ]; then
         # Normalize path once for blocklist checks
         normalized_path=$(normalize_path "$mount_path")
         # Reject paths with colons (ambiguous Docker mount syntax)
-        if [[ "$mount_path" == *:* ]]; then
+        if [[ "$normalized_path" != /* ]]; then
+          warn "Skipping mount path that is not absolute: $mount_path"
+        elif [[ "$mount_path" == *:* ]]; then
           warn "Skipping mount path containing ':': $mount_path"
         # Reject paths with path traversal sequences (../)
         elif [[ "$mount_path" =~ (^|/)\.\.($|/) ]]; then

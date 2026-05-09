@@ -52,9 +52,21 @@ source "$REPO_ROOT/scripts/repo-common.sh"
 
 # Parse --update flag (passed by `agentbox update` to bust Docker cache)
 update_mode=false
+locked_mode=false
 for arg in "$@"; do
   [ "$arg" = "--update" ] && update_mode=true
+  [ "$arg" = "--locked" ] && locked_mode=true
 done
+
+require_locked_build_value() {
+  local name="$1"
+  local value="${!name:-}"
+
+  if [ -z "$value" ]; then
+    error "Locked builds require $name"
+    exit 1
+  fi
+}
 
 # Detect the user's shell RC file for PATH configuration.
 detect_shell_rc() {
@@ -76,11 +88,30 @@ do_build() {
   step "Building $IMAGE_NAME image"
   local build_args=()
 
-  # Always use latest Claude Code version as cache key so fresh installs
-  # get the newest binary while still reusing cache when version is unchanged.
-  local cache_key
-  cache_key=$(build_cache_bust_key 5)
-  build_args+=(--build-arg "CACHE_BUST=$cache_key")
+  if [ "$locked_mode" = true ]; then
+    require_locked_build_value AGENTBOX_BASE_IMAGE
+    require_locked_build_value AGENTBOX_CLAUDE_CODE_VERSION
+    require_locked_build_value AGENTBOX_CLAUDE_CODE_SHA256
+    require_locked_build_value AGENTBOX_CODEX_RELEASE_TAG
+    require_locked_build_value AGENTBOX_CODEX_SHA256
+    if [[ "$AGENTBOX_BASE_IMAGE" != *@sha256:* ]]; then
+      error "Locked builds require AGENTBOX_BASE_IMAGE to include an immutable @sha256 digest"
+      exit 1
+    fi
+    build_args+=(
+      --build-arg "BASE_IMAGE=$AGENTBOX_BASE_IMAGE"
+      --build-arg "CLAUDE_CODE_VERSION=$AGENTBOX_CLAUDE_CODE_VERSION"
+      --build-arg "CLAUDE_CODE_SHA256=$AGENTBOX_CLAUDE_CODE_SHA256"
+      --build-arg "CODEX_RELEASE_TAG=$AGENTBOX_CODEX_RELEASE_TAG"
+      --build-arg "CODEX_SHA256=$AGENTBOX_CODEX_SHA256"
+    )
+  else
+    # Always use latest Claude Code version as cache key so fresh installs
+    # get the newest binary while still reusing cache when version is unchanged.
+    local cache_key
+    cache_key=$(build_cache_bust_key 5)
+    build_args+=(--build-arg "CACHE_BUST=$cache_key")
+  fi
 
   # Track old image ID for cleanup during updates
   local old_id=""
