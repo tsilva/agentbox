@@ -32,7 +32,8 @@ LAST_FAKE_HOME=""
 REAL_DOCKER_HOST="${DOCKER_HOST:-}"
 
 setup_fake_home() {
-  LAST_FAKE_HOME=$(mktemp -d)
+  LAST_FAKE_HOME=$(mktemp -d /tmp/agentbox-home.XXXXXX 2>/dev/null || mktemp -d)
+  LAST_FAKE_HOME=$(canonicalize_path "$LAST_FAKE_HOME")
   FAKE_HOMES+=("$LAST_FAKE_HOME")
   mkdir -p "$LAST_FAKE_HOME/.agentbox"
   cp "$REPO_ROOT/scripts/seccomp.json" "$LAST_FAKE_HOME/.agentbox/seccomp.json"
@@ -96,8 +97,11 @@ if command -v jq &>/dev/null; then
   unconditional_seccomp_allows=$(jq -r '.syscalls[] | select(.action == "SCMP_ACT_ALLOW" and ((.args // []) | length == 0)) | .names[]' "$REPO_ROOT/scripts/seccomp.json")
   all_seccomp_allows=$(jq -r '.syscalls[] | select(.action == "SCMP_ACT_ALLOW") | .names[]' "$REPO_ROOT/scripts/seccomp.json")
   clone_rule=$(jq -c '.syscalls[] | select((.names // []) | index("clone"))' "$REPO_ROOT/scripts/seccomp.json")
+  clone3_rule=$(jq -c '.syscalls[] | select((.names // []) | index("clone3"))' "$REPO_ROOT/scripts/seccomp.json")
 
   assert_not_contains "$all_seccomp_allows" "clone3" "clone3 is blocked by seccomp"
+  assert_contains "$clone3_rule" '"SCMP_ACT_ERRNO"' "clone3 returns errno instead of being allowed"
+  assert_contains "$clone3_rule" '"errnoRet":38' "clone3 reports ENOSYS so runtimes can fall back to clone"
   assert_not_contains "$all_seccomp_allows" "mknod" "mknod is blocked by seccomp"
   assert_not_contains "$all_seccomp_allows" "mknodat" "mknodat is blocked by seccomp"
   assert_not_contains "$all_seccomp_allows" "setuid" "setuid is blocked by seccomp"
@@ -288,7 +292,7 @@ EOF
 printf '%s\n' 'host-plugin' > "$LAST_FAKE_HOME/.claude/plugins/cache/example-market/example-plugin/plugin.js"
 
 cat > .agentbox.json << 'EOF'
-{"safe":{"network":"none"}}
+{"safe":{}}
 EOF
 
 cat > .agentbox.Dockerfile << 'EOF'
@@ -313,6 +317,8 @@ SCRIPT
 RUN chmod 755 /opt/claude-code/claude && chown claude:claude /opt/claude-code/claude
 USER claude
 EOF
+
+HOME="$LAST_FAKE_HOME" "$PROCESSED_TEMPLATE" trust >/dev/null 2>&1
 
 readonly_exit=0
 if output=$(HOME="$LAST_FAKE_HOME" DOCKER_HOST="$REAL_DOCKER_HOST" "$PROCESSED_TEMPLATE" --claude --allow-project-dockerfile --readonly -p "self-check" 2>&1); then
@@ -423,6 +429,8 @@ echo ""
 echo "--- io_uring Seccomp ---"
 
 io_uring_result=$(docker run --rm \
+  --cap-drop=ALL \
+  --security-opt=no-new-privileges \
   --security-opt "seccomp=$REPO_ROOT/scripts/seccomp.json" \
   --entrypoint python3 agentbox -c 'import ctypes, os; libc=ctypes.CDLL(None, use_errno=True); rc=libc.syscall(425, 1, 0); print("errno=%s" % ctypes.get_errno() if rc == -1 else "allowed")' 2>&1 || true)
 assert_contains "$io_uring_result" "errno=1" "io_uring_setup blocked with EPERM"

@@ -39,8 +39,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # --dangerously-skip-permissions as root, so a regular user is required.
 # On macOS/Docker Desktop, UID mapping is handled by the VM layer.
 RUN useradd -m -s /bin/bash claude && \
-    mkdir -p /opt/claude-code /opt/codex /opt/uv/bin /home/claude/.local/bin && \
-    chown -R claude:claude /opt/claude-code /opt/codex /opt/uv /home/claude/.local
+    mkdir -p \
+      /opt/claude-code \
+      /opt/codex \
+      /opt/uv/bin \
+      /home/claude/.config \
+      /home/claude/.local/bin \
+      /home/claude/.claude/plugins \
+      /home/claude/.claude/plans \
+      /home/claude/.claude/runtime \
+      /home/claude/.codex/log \
+      /home/claude/.codex/runtime \
+      /home/claude/.codex/sessions \
+      /home/claude/.codex/tmp && \
+    chown -R claude:claude \
+      /opt/claude-code \
+      /opt/codex \
+      /opt/uv \
+      /home/claude/.config \
+      /home/claude/.local \
+      /home/claude/.claude \
+      /home/claude/.codex
 
 # Switch to non-root user for all subsequent commands.
 USER claude

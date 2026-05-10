@@ -162,7 +162,7 @@ require_docker() {
 
 # Check if the agentbox image exists
 require_image() {
-  if ! docker image inspect agentbox &>/dev/null; then
+  if ! docker image inspect agentbox:latest &>/dev/null; then
     echo "SKIP: agentbox image not built"
     echo "Run: docker build -t agentbox ."
     exit 0

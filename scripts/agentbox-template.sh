@@ -478,6 +478,7 @@ use_authless_sandbox_state() {
 
   reset_private_dir "$AUTHLESS_DOTCONFIG_DIR"
   reset_private_dir "$AUTHLESS_CLAUDE_DIR"
+  ensure_private_dir "$AUTHLESS_CLAUDE_DIR/plugins"
   ensure_private_dir "$AUTHLESS_CLAUDE_DIR/plans"
   ensure_private_dir "$AUTHLESS_CLAUDE_DIR/runtime"
   reset_private_dir "$AUTHLESS_PLUGINS_DIR"
@@ -520,6 +521,7 @@ prepare_empty_runtime_state() {
   reset_private_dir "$EMPTY_RUNTIME_STATE_DIR"
   ensure_private_dir "$EMPTY_DOTCONFIG_DIR"
   ensure_private_dir "$EMPTY_CLAUDE_DIR"
+  ensure_private_dir "$EMPTY_CLAUDE_DIR/plugins"
   ensure_private_dir "$EMPTY_CLAUDE_DIR/plans"
   ensure_private_dir "$EMPTY_CLAUDE_DIR/runtime"
   ensure_private_dir "$EMPTY_PLUGINS_DIR"
