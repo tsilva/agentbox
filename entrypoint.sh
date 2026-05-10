@@ -1,12 +1,23 @@
 #!/bin/bash
 set -euo pipefail
 
+ensure_dir() {
+  local path="$1"
+
+  if [ -e "$path" ] && [ ! -d "$path" ]; then
+    echo "agentbox: expected directory at $path, found non-directory" >&2
+    exit 1
+  fi
+
+  mkdir -p "$path"
+}
+
 # Recreate symlink on tmpfs (rootfs is read-only, ~/.local is a tmpfs)
 # Agent binaries live under /opt to avoid collision with config volume mounts,
 # so symlink them into PATH on every boot.
-mkdir -p /home/claude/.local/bin
-mkdir -p /home/claude/.claude
-mkdir -p /home/claude/.codex
+ensure_dir /home/claude/.local/bin
+ensure_dir /home/claude/.claude
+ensure_dir /home/claude/.codex
 ln -sf /opt/claude-code/claude /home/claude/.local/bin/claude
 ln -sf /opt/codex/codex /home/claude/.local/bin/codex
 
