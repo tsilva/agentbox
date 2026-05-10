@@ -30,6 +30,8 @@ chmod +x "$PROCESSED_TEMPLATE"
 FAKE_HOMES=()
 LAST_FAKE_HOME=""
 REAL_DOCKER_HOST="${DOCKER_HOST:-}"
+CONTAINER_UID="${AGENTBOX_CONTAINER_UID:-$(id -u)}"
+CONTAINER_GID="${AGENTBOX_CONTAINER_GID:-$(id -g)}"
 
 setup_fake_home() {
   LAST_FAKE_HOME=$(mktemp -d /tmp/agentbox-home.XXXXXX 2>/dev/null || mktemp -d)
@@ -80,7 +82,7 @@ assert_contains "$output" "--read-only" "read-only rootfs present"
 assert_contains "$output" "nosuid" "tmpfs has nosuid flag"
 
 # Test: tmpfs mounts have proper ownership (printf %q may escape commas)
-assert_matches "$output" "uid=1000(\\\\,|,)gid=1000" "tmpfs has correct ownership"
+assert_matches "$output" "uid=$CONTAINER_UID(\\\\,|,)gid=$CONTAINER_GID" "tmpfs has correct ownership"
 
 teardown_test_dir
 
@@ -220,9 +222,13 @@ echo "--- Non-Root User ---"
 require_docker
 require_image
 
-# Verify the container runs as UID 1000 (non-root)
+# Verify the base image runs as a non-root user.
 uid=$(docker run --rm --entrypoint /bin/bash agentbox -c "id -u")
-assert_equals "$uid" "1000" "container runs as UID 1000"
+if [ "$uid" = "0" ]; then
+  fail "container user is not UID 0"
+else
+  pass "container user is not UID 0"
+fi
 
 # Verify the user is not root
 username=$(docker run --rm --entrypoint /bin/bash agentbox -c "whoami")
@@ -368,7 +374,7 @@ else
 fi
 assert_equals "$dry_run_exit" "0" "dry-run with project Dockerfile opt-in exits successfully"
 assert_contains "$output" "Per-project image build allowed by --allow-project-dockerfile" "dry-run reports explicit project image opt-in"
-assert_contains "$output" "--user 1000:1000" "project image runs as UID 1000"
+assert_contains "$output" "--user $CONTAINER_UID:$CONTAINER_GID" "project image runs as host UID/GID"
 assert_contains "$output" "--entrypoint /bin/bash" "project image uses bash entrypoint"
 assert_contains "$output" "/home/claude/entrypoint.sh" "project image runs trusted entrypoint"
 assert_contains "$output" "agentbox-project" "dry-run references project image after opt-in"
@@ -419,7 +425,7 @@ else
 fi
 assert_equals "$runtime_exit" "0" "project runtime contract exits successfully"
 assert_contains "$output" "trusted entrypoint reached" "trusted entrypoint overrides project entrypoint"
-assert_contains "$output" "uid=1000" "project image forced to UID 1000"
+assert_contains "$output" "uid=$CONTAINER_UID" "project image forced to host UID"
 assert_not_contains "$output" "MALICIOUS_ENTRYPOINT_RAN" "project entrypoint is not executed"
 
 teardown_test_dir

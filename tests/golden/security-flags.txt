@@ -23,5 +23,6 @@ nosuid
 # Ports must bind to localhost only (127.0.0.1)
 # Pattern: -p 127.0.0.1:
 
-# Tmpfs mounts should have proper ownership
-uid=1000,gid=1000
+# Tmpfs mounts should be owned by the configured container UID/GID.
+# Defaults to the invoking host UID/GID so private bind mounts stay accessible.
+uid=,gid=

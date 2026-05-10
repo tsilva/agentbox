@@ -52,6 +52,7 @@ RUN useradd -m -s /bin/bash claude && \
       /home/claude/.codex/runtime \
       /home/claude/.codex/sessions \
       /home/claude/.codex/tmp && \
+    chmod 755 /home/claude && \
     chown -R claude:claude \
       /opt/claude-code \
       /opt/codex \

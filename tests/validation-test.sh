@@ -34,6 +34,8 @@ cp "$REPO_ROOT/scripts/seccomp.json" ~/.agentbox/seccomp.json
 
 FAKE_HOMES=()
 LAST_FAKE_HOME=""
+CONTAINER_UID="${AGENTBOX_CONTAINER_UID:-$(id -u)}"
+CONTAINER_GID="${AGENTBOX_CONTAINER_GID:-$(id -g)}"
 
 setup_fake_home() {
   LAST_FAKE_HOME=$(mktemp -d /tmp/agentbox-fake-home.XXXXXX 2>/dev/null || mktemp -d)
@@ -732,7 +734,7 @@ assert_contains "$output" "Refusing to build repo-controlled .agentbox.Dockerfil
 
 output=$(HOME="$fake_home" "$PROCESSED_TEMPLATE" --claude --allow-project-dockerfile --dry-run 2>&1)
 assert_contains "$output" "Per-project image build allowed by --allow-project-dockerfile" "project Dockerfile dry-run reports opt-in"
-assert_contains "$output" "--user 1000:1000" "project Dockerfile dry-run forces UID 1000"
+assert_contains "$output" "--user $CONTAINER_UID:$CONTAINER_GID" "project Dockerfile dry-run forces host UID/GID"
 assert_contains "$output" "--entrypoint /bin/bash" "project Dockerfile dry-run forces bash entrypoint"
 assert_contains "$output" "/home/claude/entrypoint.sh" "project Dockerfile dry-run runs trusted entrypoint"
 

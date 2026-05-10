@@ -79,6 +79,26 @@ IMAGE_NAME="PLACEHOLDER_IMAGE_NAME"
 # Default process limit to prevent fork bombs
 DEFAULT_PIDS_LIMIT=256
 
+host_id() {
+  local flag="$1"
+
+  if command -v id >/dev/null 2>&1; then
+    id "$flag"
+  elif [ -x /usr/bin/id ]; then
+    /usr/bin/id "$flag"
+  else
+    return 1
+  fi
+}
+
+CONTAINER_UID="${AGENTBOX_CONTAINER_UID:-${UID:-$(host_id -u)}}"
+CONTAINER_GID="${AGENTBOX_CONTAINER_GID:-$(host_id -g)}"
+if [ "$CONTAINER_UID" = "0" ]; then
+  error_block "Refusing to run agentbox container as root." \
+    "Run agentbox as a regular host user so private bind mounts can stay user-owned."
+  exit 1
+fi
+
 # Seccomp profile path (for syscall filtering)
 SECCOMP_PROFILE="$HOME/.agentbox/seccomp.json"
 
@@ -1350,7 +1370,6 @@ if [ -f ".agentbox.Dockerfile" ]; then
   fi
   run_image="${IMAGE_NAME}-project"
   project_runtime_args+=(
-    --user "1000:1000"
     -v "$TRUSTED_ENTRYPOINT_FILE:/home/claude/entrypoint.sh:ro"
   )
   if [ "$first_cmd" != "shell" ]; then
@@ -1360,7 +1379,7 @@ if [ -f ".agentbox.Dockerfile" ]; then
     cmd_args=(/home/claude/entrypoint.sh ${cmd_args[@]+"${cmd_args[@]}"})
   fi
   if [ "$dry_run" = true ]; then
-    project_image_note="Per-project image build allowed by --allow-project-dockerfile; dry-run skips the build. Treat $run_image as full runtime trust even though agentbox forces UID 1000 and the host-controlled entrypoint."
+    project_image_note="Per-project image build allowed by --allow-project-dockerfile; dry-run skips the build. Treat $run_image as full runtime trust even though agentbox forces the host UID/GID and the host-controlled entrypoint."
   fi
 fi
 
@@ -1371,10 +1390,10 @@ ro_suffix=""
 readonly_args=()
 if [ "$readonly_mode" = true ]; then
   ro_suffix=":ro"
-  readonly_args+=(--tmpfs "/home/claude/.claude/plans:rw,nosuid,size=64m,uid=1000,gid=1000")
-  readonly_args+=(--tmpfs "/home/claude/.codex/sessions:rw,nosuid,size=64m,uid=1000,gid=1000")
-  readonly_args+=(--tmpfs "/home/claude/.codex/log:rw,nosuid,size=64m,uid=1000,gid=1000")
-  readonly_args+=(--tmpfs "/home/claude/.codex/tmp:rw,nosuid,size=64m,uid=1000,gid=1000")
+  readonly_args+=(--tmpfs "/home/claude/.claude/plans:rw,nosuid,size=64m,uid=$CONTAINER_UID,gid=$CONTAINER_GID")
+  readonly_args+=(--tmpfs "/home/claude/.codex/sessions:rw,nosuid,size=64m,uid=$CONTAINER_UID,gid=$CONTAINER_GID")
+  readonly_args+=(--tmpfs "/home/claude/.codex/log:rw,nosuid,size=64m,uid=$CONTAINER_UID,gid=$CONTAINER_GID")
+  readonly_args+=(--tmpfs "/home/claude/.codex/tmp:rw,nosuid,size=64m,uid=$CONTAINER_UID,gid=$CONTAINER_GID")
   # Force all extra mounts to read-only regardless of profile config
   for i in "${!extra_mounts[@]}"; do
     [[ "${extra_mounts[$i]}" != "-v" && "${extra_mounts[$i]}" != *":ro" ]] && extra_mounts[i]+=":ro"
@@ -1436,6 +1455,7 @@ docker_cmd=(
   --security-opt "seccomp=$SECCOMP_PROFILE"
   # Project images are forced back to the agentbox runtime contract.
   ${project_runtime_args[@]+"${project_runtime_args[@]}"}
+  --user "$CONTAINER_UID:$CONTAINER_GID"
   # Mount rootfs as read-only; writable dirs use tmpfs below
   --read-only
   # Tmpfs mounts for directories that need write access (size-limited)
@@ -1443,7 +1463,7 @@ docker_cmd=(
   --tmpfs "/home/claude/.cache:rw,nosuid,size=$TMPFS_CACHE_SIZE"
   --tmpfs "/home/claude/.npm:rw,nosuid,size=$TMPFS_NPM_SIZE"
   -v "$MOUNT_SANDBOX_DOTCONFIG_DIR:/home/claude/.config${ro_suffix}"
-  --tmpfs "/home/claude/.local:rw,nosuid,size=$TMPFS_LOCAL_SIZE,uid=1000,gid=1000"
+  --tmpfs "/home/claude/.local:rw,nosuid,size=$TMPFS_LOCAL_SIZE,uid=$CONTAINER_UID,gid=$CONTAINER_GID"
   # Apply resource limits (if configured in profile)
   ${resource_args[@]+"${resource_args[@]}"}
   # Apply network mode if non-default
@@ -1455,6 +1475,7 @@ docker_cmd=(
   -e "AGENTBOX_PIDS_LIMIT=${profile_pids_limit:-$DEFAULT_PIDS_LIMIT}"
   -e "AGENTBOX_EXTRA_MOUNTS=${extra_mounts_info:-}"
   -e "AGENTBOX_READONLY=${readonly_mode:-false}"
+  -e "HOME=/home/claude"
   -e "CODEX_HOME=/home/claude/.codex"
   ${runtime_env_args[@]+"${runtime_env_args[@]}"}
   # Set the working directory inside the container to match the host
@@ -1465,7 +1486,7 @@ docker_cmd=(
   # from the host before launch, but subsequent writes stay isolated to agentbox.
   -v "$MOUNT_SANDBOX_CLAUDE_DIR:/home/claude/.claude${ro_suffix}"
   # Keep sandbox-awareness CLAUDE.md writable via a tmpfs-backed runtime path.
-  --tmpfs "/home/claude/.claude/runtime:rw,nosuid,size=16m,uid=1000,gid=1000"
+  --tmpfs "/home/claude/.claude/runtime:rw,nosuid,size=16m,uid=$CONTAINER_UID,gid=$CONTAINER_GID"
   # Mount the sandbox mirror of Claude's JSON state file.
   -v "$MOUNT_SANDBOX_CLAUDE_STATE_FILE:/home/claude/.claude.json${ro_suffix}"
   # Mount sandbox plugins directory (isolated from host ~/.claude/plugins/)
@@ -1473,7 +1494,7 @@ docker_cmd=(
   # Mount the sandbox mirror of Codex state/config/auth.
   -v "$MOUNT_SANDBOX_CODEX_DIR:/home/claude/.codex${ro_suffix}"
   # Keep sandbox-awareness Codex AGENTS.md writable via tmpfs-backed runtime path.
-  --tmpfs "/home/claude/.codex/runtime:rw,nosuid,size=16m,uid=1000,gid=1000"
+  --tmpfs "/home/claude/.codex/runtime:rw,nosuid,size=16m,uid=$CONTAINER_UID,gid=$CONTAINER_GID"
   # Add readonly mode tmpfs overlay (plans directory) when enabled
   ${readonly_args[@]+"${readonly_args[@]}"}
   # Add any profile-configured extra mounts, ports, and entrypoint overrides
