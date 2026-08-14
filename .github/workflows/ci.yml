@@ -34,6 +34,9 @@ on:
 # fresh virtual machine (called a "runner") on GitHub's servers.
 # Jobs run in PARALLEL by default unless you add dependencies between them.
 # This workflow defines three independent jobs: shellcheck, build, and syntax.
+permissions:
+  contents: read
+
 jobs:
 
   # ---------------------------------------------------------------------------
@@ -55,7 +58,9 @@ jobs:
       # actions/checkout@v6 clones your repository into the runner so
       # subsequent steps can access your code. Almost every workflow starts
       # with this step. "@v4" pins it to version 4 of the action.
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       # "name" is a human-readable label shown in the GitHub Actions UI.
       # "run" executes a shell command on the runner.
@@ -85,7 +90,9 @@ jobs:
     steps:
       # Clone the repo (same as above — each job gets its own fresh VM,
       # so every job needs its own checkout step).
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       # Build the Docker image from the Dockerfile in the current directory (".").
       # "-t agentbox" tags (names) the resulting image so we can
@@ -113,7 +120,9 @@ jobs:
   syntax:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       # "bash -n" is bash's built-in syntax check mode. The "-n" flag tells
       # bash to read and parse the script but NOT execute it. If the script
@@ -146,7 +155,9 @@ jobs:
     # Run after build job to ensure image is buildable
     needs: build
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       # Build the Docker image (needed for isolation tests)
       - name: Build Docker image
