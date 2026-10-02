@@ -53,7 +53,15 @@ make_canonical_temp_dir() {
 }
 
 file_mode() {
-  stat -f %Lp "$1" 2>/dev/null || stat -c %a "$1"
+  local mode
+
+  # GNU stat can print filesystem data before rejecting the BSD arguments.
+  # Only emit the BSD result when that invocation succeeds.
+  if mode=$(stat -f %Lp "$1" 2>/dev/null); then
+    printf '%s\n' "$mode"
+  else
+    stat -c %a "$1"
+  fi
 }
 
 setup_fake_docker() {
@@ -849,8 +857,15 @@ trust_record=$(find "$fake_home/.agentbox/trusted-projects" -type f -print -quit
 assert_contains "$(<"$trust_record")" "version=2" "trusted project record uses identity format"
 
 git_dir_before=$(git rev-parse --absolute-git-dir)
-rm -rf "$git_dir_before"
+# Keep the original directory allocated so its inode cannot be reused.
+original_git_dir="$TEST_DIR/original-git-dir"
+mv "$git_dir_before" "$original_git_dir"
 git init -q
+if [ "$git_dir_before" -ef "$original_git_dir" ]; then
+  fail "replacement git directory has a different identity"
+else
+  pass "replacement git directory has a different identity"
+fi
 output=$(HOME="$fake_home" PATH="$FAKE_TOOLS_PATH" "$PROCESSED_TEMPLATE" --claude -p "hello" 2>&1 || true)
 if [[ "$output" == *"Project is not trusted for networked Claude credentials"* ]]; then
   pass "replaced project identity is not trusted"
