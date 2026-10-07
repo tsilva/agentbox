@@ -85,5 +85,45 @@ staged_sessions=("$HOME/.agentbox/sessions"/session.*)
 [ "$(cat file.txt)" = edited ]
 [ "$(cat .env)" = private-source-secret ]
 [ -z "$(ls -A "$HOME/.agentbox/sessions")" ]
+# Real first-run setup uses a controlling terminal, saves config, and approves
+# an offline plan without reading provider credentials or starting an agent.
+python3 - "$cli" <<'PY_INIT'
+import os, pty, select, signal, sys, time
+cli = sys.argv[1]
+pid, fd = pty.fork()
+if pid == 0:
+    os.execv(cli, [cli, "init", "--codex"])
+os.write(fd, ("\n".join(["offline", "", "", "", "", "y"]) + "\n").encode())
+output = bytearray()
+status = None
+try:
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        if select.select([fd], [], [], 0.1)[0]:
+            try:
+                output.extend(os.read(fd, 65536))
+            except OSError:
+                pass
+        child, result = os.waitpid(pid, os.WNOHANG)
+        if child:
+            status = os.waitstatus_to_exitcode(result)
+            break
+    if status is None:
+        os.kill(pid, signal.SIGKILL)
+        os.waitpid(pid, 0)
+        raise SystemExit("init timed out: " + output.decode(errors="replace"))
+    if status:
+        raise SystemExit(output.decode(errors="replace"))
+finally:
+    os.close(fd)
+PY_INIT
+jq -e '.version == 1 and .runtime == "codex" and .profiles.default.mode == "offline"' .agentbox.json >/dev/null
+"$cli" shell -c '
+  set -eu
+  [ -z "${OPENAI_API_KEY:-}" ]
+  [ ! -s /home/claude/.codex/auth.json ]
+  printf "init-config-loaded\n"
+'
+[ -z "$(ls -A "$HOME/.agentbox/sessions")" ]
 [ "$(docker volume ls -q --filter label=agentbox.managed=true | sort)" = "$initial_volumes" ]
-echo 'PASS: actual launcher enforces read-only mounts, non-root, capabilities, auth separation, network isolation, broker startup/routes, staged edits/apply, and cleanup'
+echo 'PASS: actual launcher enforces read-only mounts, non-root, capabilities, auth separation, network isolation, broker startup/routes, staged edits/apply, project initialization, saved config, and cleanup'

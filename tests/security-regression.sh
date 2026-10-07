@@ -329,7 +329,7 @@ EOF
 printf '\nLABEL agentbox.test="%s"\n' "$TEST_IMAGE_LABEL" >> .agentbox.Dockerfile
 
 HOME="$LAST_FAKE_HOME" "$PROCESSED_TEMPLATE" plugins refresh >/dev/null 2>&1
-HOME="$LAST_FAKE_HOME" "$PROCESSED_TEMPLATE" trust >/dev/null 2>&1
+HOME="$LAST_FAKE_HOME" "$PROCESSED_TEMPLATE" --claude --allow-project-dockerfile --readonly --plugins trust >/dev/null 2>&1
 
 readonly_exit=0
 if output=$(HOME="$LAST_FAKE_HOME" DOCKER_HOST="$REAL_DOCKER_HOST" "$PROCESSED_TEMPLATE" --claude --allow-project-dockerfile --readonly --plugins -p "self-check" 2>&1); then
