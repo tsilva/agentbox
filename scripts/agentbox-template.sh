@@ -1183,9 +1183,9 @@ if [ -n "$project_document" ]; then
       # Read profile names into an array for the selection menu (compatible with Bash 3)
       profile_array=()
       while IFS= read -r _p; do profile_array+=("$_p"); done < <(project_config_jq -r 'keys[]')
-      [ -t 0 ] && [ -t 1 ] && [ "$print_mode" = false ] && [ "$dry_run" = false ] || {
-        error 'Multiple profiles require --profile in unattended or preview mode'; exit 1;
-      }
+      if [ ! -t 0 ] || [ ! -t 1 ] || [ "$print_mode" != false ] || [ "$dry_run" != false ]; then
+        error 'Multiple profiles require --profile in unattended or preview mode'; exit 1
+      fi
       profile_name=$(choose "Select profile:" "${profile_array[@]}")
     fi
 

@@ -61,9 +61,9 @@ load_project_config() {
 }
 
 assert_project_config_unchanged() {
-  [ ! -L .agentbox.json ] && [ "$(cat .agentbox.json 2>/dev/null || true)" = "$project_original" ] || {
-    error '.agentbox.json changed during setup or launch; retry'; exit 1;
-  }
+  if [ -L .agentbox.json ] || [ "$(cat .agentbox.json 2>/dev/null || true)" != "$project_original" ]; then
+    error '.agentbox.json changed during setup or launch; retry'; exit 1
+  fi
 }
 
 prompt_value() {
@@ -91,10 +91,13 @@ confirm_access() {
 
 prepare_project_init() {
   local profile cpu memory pids mounts ports path ro
-  [ -t 0 ] && [ -t 1 ] || { error 'agentbox init requires an interactive terminal'; exit 1; }
-  [ ${#cmd_args[@]} -eq 1 ] && [ "$dry_run" = false ] && [ "$staged_mode" = false ] && [ "$plugins_enabled" = false ] && [ "$allow_project_dockerfile" = false ] && [ "$readonly_mode" = false ] || {
-    error 'Usage: agentbox init [--claude|--codex] [--profile name] [--direct|--broker]'; exit 1;
-  }
+  if [ ! -t 0 ] || [ ! -t 1 ]; then
+    error 'agentbox init requires an interactive terminal'; exit 1
+  fi
+  if [ ${#cmd_args[@]} -ne 1 ] || [ "$dry_run" != false ] || [ "$staged_mode" != false ] ||
+    [ "$plugins_enabled" != false ] || [ "$allow_project_dockerfile" != false ] || [ "$readonly_mode" != false ]; then
+    error 'Usage: agentbox init [--claude|--codex] [--profile name] [--direct|--broker]'; exit 1
+  fi
   command -v jq >/dev/null || { error 'Install jq before running agentbox init'; exit 1; }
   section 'Project setup'
   [ "$runtime_explicit" = true ] || agent_runtime=$(prompt_enum 'Agent' "$agent_runtime" 'claude|codex')
