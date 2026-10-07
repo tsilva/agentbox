@@ -19,12 +19,10 @@ echo "=== Version Staleness Check Tests ==="
 echo ""
 
 # Use the template directly with --dry-run
-TEMPLATE="$REPO_ROOT/scripts/agentbox-template.sh"
 
 # Create a processed version of the template
 PROCESSED_TEMPLATE=$(mktemp)
-sed 's|PLACEHOLDER_IMAGE_NAME|agentbox|g' \
-    "$TEMPLATE" > "$PROCESSED_TEMPLATE"
+"$REPO_ROOT/scripts/render-cli.sh" agentbox > "$PROCESSED_TEMPLATE"
 chmod +x "$PROCESSED_TEMPLATE"
 
 # Save originals so we can restore them after tests
@@ -81,7 +79,7 @@ assert_not_contains "$output" "update available" "no warning when versions match
 
 teardown_test_dir
 
-# --- Test: Warning shown when versions differ ---
+# --- Test: Preview skips update lookup even when cache differs ---
 echo ""
 echo "--- Versions Differ ---"
 
@@ -91,10 +89,7 @@ printf '%s' "2.1.31" > "$HOME/.agentbox/version"
 printf '%s' "2.1.34" > "$HOME/.agentbox/.latest-version"
 touch "$HOME/.agentbox/.latest-version"
 output=$("$PROCESSED_TEMPLATE" --claude --dry-run 2>&1)
-assert_contains "$output" "update available" "warning shown when versions differ"
-assert_contains "$output" "2.1.31" "warning includes installed version"
-assert_contains "$output" "2.1.34" "warning includes latest version"
-assert_contains "$output" "agentbox update" "warning includes update command"
+assert_not_contains "$output" "update available" "preview skips version lookup"
 
 teardown_test_dir
 
@@ -111,7 +106,7 @@ touch "$HOME/.agentbox/.latest-version"
 stdout_output=$("$PROCESSED_TEMPLATE" --claude --dry-run 2>/dev/null)
 stderr_output=$("$PROCESSED_TEMPLATE" --claude --dry-run 2>&1 >/dev/null)
 assert_not_contains "$stdout_output" "update available" "warning not on stdout"
-assert_contains "$stderr_output" "update available" "warning on stderr"
+assert_not_contains "$stderr_output" "update available" "preview does not check versions on stderr"
 
 teardown_test_dir
 

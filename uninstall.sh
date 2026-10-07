@@ -67,7 +67,19 @@ do_uninstall() {
   fi
 
   # All image variants that may exist
-  local images=("agentbox" "agentbox-test" "agentbox-project")
+  local images=("agentbox" "agentbox-test" "agentbox-project" "agentbox-claude" "agentbox-codex" "agentbox-claude-python" "agentbox-codex-python" "agentbox-broker")
+  local image_record
+  for image_record in "$HOME/.agentbox/images/"*; do
+    [ ! -f "$image_record" ] || images+=("$(cat "$image_record")")
+  done
+  local managed_container
+  for managed_container in $(docker ps -aq --filter label=agentbox.managed=true); do
+    docker rm -f "$managed_container" >/dev/null
+  done
+  local managed_volume
+  for managed_volume in $(docker volume ls -q --filter label=agentbox.managed=true); do
+    docker volume rm "$managed_volume" >/dev/null
+  done
 
   # Step 1: Stop running containers from any variant image
   step "Stopping running containers"
@@ -127,6 +139,7 @@ do_uninstall() {
     dim "Script not found at $script_path, skipping"
   fi
 
+  rm -f "$HOME/.agentbox/bin/workspace.py"
   # Remove alias symlink
   local alias_path="$HOME/.agentbox/bin/claudes"
   if [ -L "$alias_path" ] || [ -f "$alias_path" ]; then

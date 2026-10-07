@@ -111,10 +111,36 @@ install_codex_cli() {
 
   tar -xzf "$tmp_dir/$asset_name" -C "$tmp_dir"
   install -m 755 "$tmp_dir/codex-${codex_arch}-unknown-linux-musl" "$install_dir/codex"
+  # Newer releases use a sibling executable for Code Mode. Install the matching
+  # release artifact, while retaining compatibility with older CLI releases.
+  local host_asset host_url host_sha
+  host_asset="codex-code-mode-host-${codex_arch}-unknown-linux-musl.tar.gz"
+  host_url=$(printf '%s' "$release_json" | jq -r --arg name "$host_asset" '.assets[] | select(.name == $name) | .browser_download_url')
+  if [ -n "$host_url" ] && [ "$host_url" != null ]; then
+    host_sha="${CODEX_CODE_MODE_SHA256:-}"
+    if [ -n "${CODEX_SHA256:-}" ] && [ -z "$host_sha" ]; then
+      echo 'Pinned Codex installs with a Code Mode host require CODEX_CODE_MODE_SHA256' >&2
+      exit 1
+    fi
+    if [ -z "$host_sha" ]; then
+      host_sha=$(printf '%s' "$release_json" | jq -r --arg name "$host_asset" '.assets[] | select(.name == $name) | .digest // ""')
+      [[ "$host_sha" == sha256:* ]] || { echo 'Missing Code Mode host checksum' >&2; exit 1; }
+      host_sha="${host_sha#sha256:}"
+    fi
+    curl -fsSL -o "$tmp_dir/$host_asset" "$host_url"
+    actual_sha=$(sha256sum "$tmp_dir/$host_asset" | awk '{print $1}')
+    [ "$actual_sha" = "$host_sha" ] || { echo 'Code Mode host checksum mismatch' >&2; exit 1; }
+    tar -xzf "$tmp_dir/$host_asset" -C "$tmp_dir"
+    install -m 755 "$tmp_dir/codex-code-mode-host-${codex_arch}-unknown-linux-musl" "$install_dir/codex-code-mode-host"
+  fi
   printf '%s\n' "$version" > "$install_dir/VERSION"
 
   echo "Installed Codex CLI $version"
 }
 
-install_claude_code
-install_codex_cli
+case "${AGENT_RUNTIME:-both}" in
+  claude) install_claude_code ;;
+  codex) install_codex_cli ;;
+  both) install_claude_code; install_codex_cli ;;
+  *) echo 'Invalid AGENT_RUNTIME' >&2; exit 1 ;;
+esac

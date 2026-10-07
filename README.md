@@ -2,7 +2,7 @@
   <img src="./logo.png" alt="agentbox" width="420" />
   <br />
   <!-- repo-tagline:start -->
-  <strong>⚡ Full autonomy. Zero blast radius 🛡️</strong>
+  <strong>⚡ Full autonomy. Explicit boundaries 🛡️</strong>
   <!-- repo-tagline:end -->
 </p>
 
@@ -12,76 +12,75 @@ Use it from any project directory when you want an agent to move quickly with Do
 
 ## Install
 
-Requires Docker installed and running. On macOS, Docker Desktop is the standard setup.
+Requires Docker installed and running, plus Git, curl, and Perl on the host. On macOS, Docker Desktop is the standard setup.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tsilva/agentbox/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tsilva/agentbox/main/install.sh | bash -s -- --runtime claude
+# Or: git clone https://github.com/tsilva/agentbox.git && cd agentbox
+./install.sh --runtime codex
 ```
 
-Or install from a local checkout:
+Installation prefers published images pinned by digest and verified with Cosign against this repository's release workflow identity. Prebuilt installation requires `jq` and `cosign` on the host. Until the first image release is published, a missing release index falls back to a local build of the selected agent. Network, signature, malformed-index, and image-pull failures stop installation.
 
 ```bash
-git clone https://github.com/tsilva/agentbox.git
-cd agentbox
-./install.sh
+./install.sh --runtime claude --prebuilt  # require a signed release
+./install.sh --runtime codex --build     # explicitly build locally
+./install.sh --runtime claude --python   # add Python, uv, and pinned pytest
 ```
 
-For reproducible installs, use locked mode with immutable inputs:
+The minimal Claude and Codex images include only the selected agent and common shell/Git/search tools. Python tooling is optional. A small separate broker image is also installed. Installing again preserves existing sessions and preferences; it does not uninstall or stop running containers.
+
+For pinned base and agent inputs, `./install.sh --locked` accepts `AGENTBOX_BASE_IMAGE` with an `@sha256:` digest, `AGENTBOX_CLAUDE_CODE_VERSION`, `AGENTBOX_CLAUDE_CODE_SHA256`, `AGENTBOX_CODEX_RELEASE_TAG`, and `AGENTBOX_CODEX_SHA256`. Codex releases with a separate Code Mode host also require `AGENTBOX_CODEX_CODE_MODE_SHA256`; the installer verifies and installs that matching companion. Apt resolution and the optional Python installation's release-age cutoff are not fully frozen by this option.
+
+Reload your shell, or run `export PATH="$HOME/.agentbox/bin:$PATH"`, then:
 
 ```bash
-AGENTBOX_BASE_IMAGE='debian:stable-slim@sha256:<digest>' \
-AGENTBOX_CLAUDE_CODE_VERSION='<version>' \
-AGENTBOX_CLAUDE_CODE_SHA256='<sha256>' \
-AGENTBOX_CODEX_RELEASE_TAG='<tag>' \
-AGENTBOX_CODEX_SHA256='<sha256>' \
-./install.sh --locked
-```
-
-Reload your shell, or update `PATH` for the current session:
-
-```bash
-export PATH="$HOME/.agentbox/bin:$PATH"
-```
-
-Then run agentbox from the project you want to sandbox:
-
-```bash
+agentbox setup --codex           # remember your preferred agent; default is Claude
 cd /path/to/project
-agentbox trust
-agentbox --claude
+agentbox doctor                 # check Docker, image, tools, and auth sources
+agentbox inspect                # explain effective grants without reading auth
+agentbox trust                  # record reviewed project identity
+agentbox                       # launch your preferred agent in edit mode
 ```
 
-For Codex, run:
-
-```bash
-agentbox --codex
-```
-
-Host auth is required before launch. For Claude, run `claude` on the host and complete `/login`. For Codex, run `codex login` on the host or export `OPENAI_API_KEY`.
+Direct authentication supports host Claude/Codex login or the selected agent's API key (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY`). Broker mode requires an API key and does not use subscription login.
 
 ## Commands
 
 ```bash
-agentbox --claude                            # start Claude Code in the sandbox
-agentbox --claude -p "explain this code"     # run Claude non-interactively
-cat README.md | agentbox --claude -p "summarize this"
-agentbox --claude shell                      # inspect the sandbox with bash
-
-agentbox --codex                             # start Codex in the sandbox
-agentbox --codex -p "explain this code"      # run Codex non-interactively
-agentbox --runtime codex exec "run tests"    # pass native Codex subcommands
-
-agentbox trust                               # trust the current canonical project identity
-agentbox trust --list                        # list trusted project paths
-agentbox untrust                             # remove trust for the current project path
-
-agentbox --claude --profile dev              # launch with a .agentbox.json profile
-agentbox --codex -P dev -p "run tests"       # combine profile and print mode
-agentbox --claude --readonly                 # mount host-backed paths read-only
-agentbox --claude --dry-run                  # print the docker run command
-agentbox --claude --allow-project-dockerfile # allow a reviewed .agentbox.Dockerfile
-agentbox update                              # update the installed script and image
+agentbox                              # preferred agent, writable project, bridge network
+agentbox review                       # read-only host mounts; direct auth and bridge network
+agentbox edit                         # explicit default mode
+agentbox offline shell                # no network, credentials, or host plugins
+agentbox --codex -p "explain this code"
+agentbox --claude -p "explain this code"
+agentbox --codex --broker -p "run tests" # provider-only API-key access
+agentbox review --broker               # read-only project and provider-only access
+agentbox --codex --profile dev
+agentbox --claude --dry-run             # print command without auth reads or state writes
+agentbox --claude -- --help             # pass options directly to the agent
+agentbox plugins refresh               # explicitly snapshot installed Claude plugins
+agentbox --claude --plugins             # mount the snapshot read-only
+agentbox trust --list
+agentbox untrust
+agentbox update                        # update the preferred runtime
+agentbox --claude update               # update Claude independently of Codex
+agentbox --codex update                # update Codex independently of Claude
 ```
+
+`review` protects host-backed files; it still permits outbound traffic in direct mode. `offline` also works through a profile with `network: "none"`; it always strips authentication, including for a trusted project. Online agent inference is unavailable offline.
+
+Broker mode disables networking in the agent container. A loopback relay connects through a read-only Unix socket mount in a private Docker-managed tmpfs volume to a separate broker that holds the provider key and forwards only fixed provider routes. General web access, package downloads, and published ports are unavailable in this mode. Switching to direct mode grants broader network and credential access explicitly; broker failure never switches modes automatically.
+
+For an optional workspace copy that you review before applying:
+
+```bash
+agentbox --codex --staged -p "refactor this module"
+# Review the workspace path printed at exit, then:
+agentbox apply session.<id>
+```
+
+Staging requires Python 3 on the host and launch from the Git root. It copies tracked and unignored regular files, excluding `.git`, `.env*`, `.pem`, `.key`, and symlinks. The source checkout stays unchanged during the session. Apply rejects symlinks, protected files, and conflicts with changes made to the source since staging; it never commits. Staging cannot expose extra host mounts. Apply performs a full conflict preflight, then applies files individually; an I/O failure can leave a partially applied result. Inspect the retained workspace and source before retrying in that case.
 
 Development commands from this repo:
 
@@ -95,6 +94,10 @@ Development commands from this repo:
 ./tests/isolation-test.sh                    # check container isolation behavior
 ./tests/validation-test.sh                   # check config validation
 ./tests/version-check-test.sh                # check update-warning behavior
+python3 tests/launcher-test.py                # auth, private state, verification, staging
+./tests/launcher-docker-test.sh               # actual launcher and broker isolation
+docker run --rm -i --network none --entrypoint python3 agentbox - < tests/provider-protocol-test.py
+(cd broker && go test -race ./...)            # broker routes, keys, limits, failure behavior
 ```
 
 ## Configuration
@@ -130,15 +133,27 @@ Supported profile fields include `mounts`, `ports`, `network`, `audit_log`, `cpu
 - Project paths and extra mounts must be absolute canonical paths without symlink hops, control characters, or `:` characters; use `pwd -P` if needed.
 - The current project is mounted at the same canonical path inside the container. The `.git` directory is mounted read-only, and host git credentials are not available.
 - Project trust records include path, filesystem identity, git identity, remote URL, and `.agentbox.json`/`.agentbox.Dockerfile` digests. Re-run `agentbox trust` after intentionally changing those trust inputs.
-- Sandbox agent state lives under `~/.agentbox/`, including installed CLI files, mirrored Claude and Codex auth/config, Claude plugin mirrors, logs, seccomp profile, and the trusted entrypoint. Containers run as your invoking host UID/GID so those private state mirrors remain accessible on Linux bind mounts without loosening host file permissions.
-- Host auth is the source of truth. For trusted or networked launches, agentbox refreshes sandbox auth only for the selected runtime from host Claude or Codex config before launch, or passes `OPENAI_API_KEY` through for Codex when set. The inactive runtime receives empty sandbox state. Untrusted `network: "none"` launches use a reset authless runtime state.
+- Each launch owns a private directory under `~/.agentbox/sessions/`. Selected-runtime credentials/config are copied only after the complete launch plan and project trust have been validated. Inactive runtime state is empty. Normal exit and interrupts remove transient state, retrying transient mount-detachment errors and reporting persistent cleanup failures. Crashes of the host or forced termination can leave private directories requiring manual removal. Runtime conversation history in these directories is ephemeral. Audit logs remain opt-in.
+- Offline launches never copy host authentication. Broker launches put the provider key only in the separate broker's private mount; the agent gets a session capability that stops working when the broker exits.
+- Claude plugins are absent by default. `agentbox plugins refresh` creates a versioned snapshot; `--plugins` opts into a read-only snapshot without copying it at every launch. Old snapshots are retained for active sessions and can be removed manually when no longer used.
 - A project-local `.agentbox.Dockerfile` can add dependencies, but it is used only when the launch includes `--allow-project-dockerfile`. Treat that flag as full runtime trust because the project image can replace shells, libraries, and agent binaries.
 - `entrypoint.sh` writes runtime sandbox-awareness files (`CLAUDE.md` for Claude and `AGENTS.md` for Codex) so the selected agent sees the active mounts, blocked paths, network mode, and resource limits.
 - See [SECURITY.md](SECURITY.md) for the isolation model, known boundaries, and reporting instructions.
 
 ## Architecture
 
-![agentbox architecture diagram](./architecture.png)
+```mermaid
+flowchart LR
+  CLI[Host launcher] --> Agent[Agent container]
+  Agent -->|broker mode: loopback relay| Socket[Unix socket]
+  Socket --> Broker[Credential broker]
+  Broker -->|fixed authenticated routes| API[Provider API]
+  CLI -->|private selected-runtime state| Agent
+```
+
+In broker mode the agent has `--network none`; the separate broker has outbound networking and no project mount. Direct mode mounts selected-runtime authentication and uses bridge networking. Both modes retain a non-root identity, dropped capabilities, seccomp, no-new-privileges, read-only root, and read-only Git metadata.
+
+Maintainers publish signed ARM64/x86 images using **Actions → Release verified images** with an explicit release tag and agent versions. The workflow tests the launcher and isolation before publishing minimal/Python variants, signs multi-platform digests with its GitHub identity, and creates an immutable `images.json` release asset. This workflow must be run after these changes are committed; adding it does not publish images.
 
 ## License
 

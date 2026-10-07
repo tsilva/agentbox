@@ -135,7 +135,6 @@ EMPTY_CLAUDE_STATE_FILE="$EMPTY_RUNTIME_STATE_DIR/.claude.json"
 EMPTY_CODEX_DIR="$EMPTY_RUNTIME_STATE_DIR/codex-config"
 KEYCHAIN_AUTH_ERROR=""
 HOST_KEYCHAIN_CREDENTIALS_JSON=""
-auth_state_mode="host"
 ACTIVE_SANDBOX_DOTCONFIG_DIR="$SANDBOX_DOTCONFIG_DIR"
 ACTIVE_SANDBOX_CLAUDE_DIR="$SANDBOX_CLAUDE_DIR"
 ACTIVE_SANDBOX_CREDENTIALS_FILE="$SANDBOX_CREDENTIALS_FILE"
@@ -260,7 +259,7 @@ ensure_sandbox_state_dirs() {
   ensure_private_dir "$SANDBOX_CODEX_DIR/tmp"
 }
 
-ensure_sandbox_state_dirs
+# @launch-common
 
 sync_directory() {
   local src="$1"
@@ -269,9 +268,9 @@ sync_directory() {
   reset_private_dir "$dest"
   if [ -d "$src" ]; then
     if command -v rsync &>/dev/null; then
-      rsync -a --delete "$src"/ "$dest"/ 2>/dev/null || true
+      rsync -a --delete "$src"/ "$dest"/
     else
-      cp -R "$src"/. "$dest"/ 2>/dev/null || true
+      cp -R "$src"/. "$dest"/
     fi
     chmod 700 "$dest" 2>/dev/null || true
   fi
@@ -360,7 +359,7 @@ keychain_auth_denied() {
 }
 
 host_auth_available() {
-  json_file_has_auth_value "$HOST_CREDENTIALS_FILE" || keychain_auth_available
+  [ -n "${ANTHROPIC_API_KEY:-}" ] || json_file_has_auth_value "$HOST_CREDENTIALS_FILE" || keychain_auth_available
 }
 
 require_host_auth() {
@@ -412,7 +411,7 @@ sync_host_auth_state() {
   # Host ~/.claude.json carries the current account and auth metadata. Copy it
   # into the sandbox mirror so each container launch starts from fresh host state.
   if [ -s "$HOST_CLAUDE_STATE_FILE" ]; then
-    write_private_file_from_file "$HOST_CLAUDE_STATE_FILE" "$ACTIVE_SANDBOX_CLAUDE_STATE_FILE" 2>/dev/null || true
+    write_private_file_from_file "$HOST_CLAUDE_STATE_FILE" "$ACTIVE_SANDBOX_CLAUDE_STATE_FILE"
   elif [ ! -s "$ACTIVE_SANDBOX_CLAUDE_STATE_FILE" ]; then
     write_private_file_content "$ACTIVE_SANDBOX_CLAUDE_STATE_FILE" "{}" 2>/dev/null || true
   fi
@@ -420,8 +419,8 @@ sync_host_auth_state() {
   # Claude Code may still use ~/.claude/.credentials.json on some installs. If
   # the host no longer has this file, remove any stale sandbox copy.
   if json_file_has_auth_value "$HOST_CREDENTIALS_FILE"; then
-    write_private_file_from_file "$HOST_CREDENTIALS_FILE" "$ACTIVE_SANDBOX_CREDENTIALS_FILE" 2>/dev/null || true
-  elif read_host_keychain_credentials && json_string_has_auth_value "$HOST_KEYCHAIN_CREDENTIALS_JSON"; then
+    write_private_file_from_file "$HOST_CREDENTIALS_FILE" "$ACTIVE_SANDBOX_CREDENTIALS_FILE"
+  elif json_string_has_auth_value "$HOST_KEYCHAIN_CREDENTIALS_JSON"; then
     write_private_file_content "$ACTIVE_SANDBOX_CREDENTIALS_FILE" "$HOST_KEYCHAIN_CREDENTIALS_JSON" 2>/dev/null || true
   else
     remove_private_path "$ACTIVE_SANDBOX_CREDENTIALS_FILE"
@@ -432,14 +431,14 @@ sync_host_codex_state() {
   sanitize_private_file_path "$ACTIVE_SANDBOX_CODEX_AUTH_FILE"
   sanitize_private_file_path "$ACTIVE_SANDBOX_CODEX_DIR/config.toml"
 
-  if [ -s "$HOST_CODEX_AUTH_FILE" ]; then
+  if [ -s "$HOST_CODEX_AUTH_FILE" ] && [ -z "${OPENAI_API_KEY:-}" ]; then
     write_private_file_from_file "$HOST_CODEX_AUTH_FILE" "$ACTIVE_SANDBOX_CODEX_AUTH_FILE" 2>/dev/null || true
   else
     remove_private_path "$ACTIVE_SANDBOX_CODEX_AUTH_FILE"
   fi
 
   if [ -s "$HOST_CODEX_CONFIG_FILE" ]; then
-    write_private_file_from_file "$HOST_CODEX_CONFIG_FILE" "$ACTIVE_SANDBOX_CODEX_DIR/config.toml" 2>/dev/null || true
+    write_private_file_from_file "$HOST_CODEX_CONFIG_FILE" "$ACTIVE_SANDBOX_CODEX_DIR/config.toml"
   elif [ ! -e "$ACTIVE_SANDBOX_CODEX_DIR/config.toml" ]; then
     write_private_file_content "$ACTIVE_SANDBOX_CODEX_DIR/config.toml" "" 2>/dev/null || true
   fi
@@ -467,27 +466,7 @@ ensure_runtime_codex_agents_link() {
   ensure_codex_agents_link_for "$ACTIVE_SANDBOX_CODEX_DIR"
 }
 
-sync_host_plugins() {
-  # Sync sandbox plugins from host (always sync to keep in sync with host state)
-  sync_directory "$HOST_CLAUDE_DIR/plugins/marketplaces" "$ACTIVE_SANDBOX_PLUGINS_DIR/marketplaces"
-
-  # Sync cache directory (contains installed plugin files)
-  sync_directory "$HOST_CLAUDE_DIR/plugins/cache" "$ACTIVE_SANDBOX_PLUGINS_DIR/cache"
-
-  # Sync metadata files with path conversion (host paths → container paths)
-  for metadata_file in known_marketplaces.json installed_plugins.json; do
-    if [ -f "$HOST_CLAUDE_DIR/plugins/$metadata_file" ]; then
-      content=$(<"$HOST_CLAUDE_DIR/plugins/$metadata_file")
-      write_private_file_content "$ACTIVE_SANDBOX_PLUGINS_DIR/$metadata_file" \
-        "${content//$HOME//home/claude}" 2>/dev/null || true
-    else
-      remove_private_path "$ACTIVE_SANDBOX_PLUGINS_DIR/$metadata_file"
-    fi
-  done
-}
-
 use_authless_sandbox_state() {
-  auth_state_mode="authless"
   ACTIVE_SANDBOX_DOTCONFIG_DIR="$AUTHLESS_DOTCONFIG_DIR"
   ACTIVE_SANDBOX_CLAUDE_DIR="$AUTHLESS_CLAUDE_DIR"
   ACTIVE_SANDBOX_CREDENTIALS_FILE="$AUTHLESS_CLAUDE_DIR/.credentials.json"
@@ -514,7 +493,9 @@ use_authless_sandbox_state() {
 prepare_sandbox_state() {
   case "$agent_runtime" in
     claude)
-      sync_host_auth_state
+      if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+        write_private_file_content "$ACTIVE_SANDBOX_CLAUDE_STATE_FILE" "{}"
+      else sync_host_auth_state; fi
       ;;
     codex)
       sync_host_codex_state
@@ -526,9 +507,7 @@ prepare_sandbox_state() {
 prepare_sandbox_non_auth_state() {
   ensure_runtime_claude_md_link
   ensure_runtime_codex_agents_link
-  if [ "$auth_state_mode" != "authless" ]; then
-    sync_host_plugins
-  fi
+  # Extensions are host-managed snapshots, selected explicitly after preparation.
   # Claude Code expects valid JSON in the mirrored state file.
   sanitize_private_file_path "$ACTIVE_SANDBOX_CLAUDE_STATE_FILE"
   if [ ! -s "$ACTIVE_SANDBOX_CLAUDE_STATE_FILE" ]; then
@@ -559,7 +538,7 @@ prepare_empty_runtime_state() {
 select_runtime_mounts() {
   MOUNT_SANDBOX_DOTCONFIG_DIR="$ACTIVE_SANDBOX_DOTCONFIG_DIR"
   MOUNT_SANDBOX_CLAUDE_DIR="$ACTIVE_SANDBOX_CLAUDE_DIR"
-  MOUNT_SANDBOX_PLUGINS_DIR="$ACTIVE_SANDBOX_PLUGINS_DIR"
+  MOUNT_SANDBOX_PLUGINS_DIR="${PLUGIN_SNAPSHOT:-$ACTIVE_SANDBOX_PLUGINS_DIR}"
   MOUNT_SANDBOX_CLAUDE_STATE_FILE="$ACTIVE_SANDBOX_CLAUDE_STATE_FILE"
   MOUNT_SANDBOX_CODEX_DIR="$ACTIVE_SANDBOX_CODEX_DIR"
 
@@ -594,10 +573,27 @@ audit_log=false        # When true, keep named container and dump logs on exit
 readonly_mode=false    # When true, mount all host paths as read-only
 print_mode=false       # When true, the runtime is in non-interactive mode (no TTY needed)
 allow_project_dockerfile=false  # When true, permit trusted per-project image builds
+launch_mode="edit"
+broker_mode=false
+plugins_enabled=false
+staged_mode=false
+inspect_mode=false
+parse_agent_args=false
+SESSION_DIR=""
+broker_container=""
+broker_socket_volume=""
+container_name=""
+PLUGIN_SNAPSHOT=""
 
 # Extract our flags (--profile, --dry-run), pass everything else to Claude
 for arg in "$@"; do
-  if [ "$skip_next" = true ]; then
+  if [ "$parse_agent_args" = true ]; then
+    [ -n "$first_cmd" ] || first_cmd="$arg"
+    if [ "$arg" = -p ] || [ "$arg" = --print ]; then print_mode=true; fi
+    cmd_args+=("$arg")
+  elif [ "$arg" = "--" ]; then
+    parse_agent_args=true
+  elif [ "$skip_next" = true ]; then
     # This arg is the value for --profile/-P
     profile_name="$arg"
     skip_next=false
@@ -605,6 +601,14 @@ for arg in "$@"; do
     # This arg is the value for --runtime
     agent_runtime="$arg"
     runtime_skip_next=false
+  elif [ "$arg" = "--help" ] || [ "$arg" = "-h" ]; then
+    show_help; exit 0
+  elif [ "$arg" = "--broker" ]; then
+    broker_mode=true
+  elif [ "$arg" = "--plugins" ]; then
+    plugins_enabled=true
+  elif [ "$arg" = "--staged" ]; then
+    staged_mode=true
   elif [ "$arg" = "--profile" ] || [ "$arg" = "-P" ]; then
     # Next arg will be the profile name
     skip_next=true
@@ -626,6 +630,11 @@ for arg in "$@"; do
   elif [ "$arg" = "--allow-project-dockerfile" ]; then
     # Explicitly allow a repo-controlled Dockerfile to run build steps
     allow_project_dockerfile=true
+  elif [ -z "$first_cmd" ] && [[ "$arg" =~ ^(review|edit|offline)$ ]]; then
+    launch_mode="$arg"
+  elif [ -z "$first_cmd" ] && [ "$arg" = "inspect" ]; then
+    inspect_mode=true
+    dry_run=true
   else
     # Track the first non-flag arg to detect the "shell" command
     [ -z "$first_cmd" ] && first_cmd="$arg"
@@ -649,11 +658,19 @@ if [ -n "$agent_runtime" ] && [[ ! "$agent_runtime" =~ ^(claude|codex)$ ]]; then
   error "Unsupported runtime '$agent_runtime' (allowed: claude, codex)"
   exit 1
 fi
-if [ -z "$agent_runtime" ] && [[ ! "$first_cmd" =~ ^(trust|untrust|update)$ ]]; then
-  error_block "No agent runtime selected." \
-    "Choose one explicitly with --claude, --codex, or --runtime <claude|codex>."
-  exit 1
+if [ -z "$agent_runtime" ]; then agent_runtime=$(read_preferred_runtime); fi
+select_installed_image
+if [ "$first_cmd" = setup ]; then
+  ensure_state_root
+  write_private_file_content "$AGENTBOX_STATE_DIR/default-runtime" "$agent_runtime"
+  success "Preferred runtime: $agent_runtime"; exit 0
+elif [ "$first_cmd" = doctor ]; then
+  doctor; exit $?
+elif [ "$first_cmd" = plugins ]; then
+  [ "${cmd_args[1]:-}" = refresh ] || { error "Usage: agentbox plugins refresh"; exit 1; }
+  refresh_plugins; exit 0
 fi
+[ "$launch_mode" != review ] || readonly_mode=true
 
 # Codex uses `codex exec` for non-interactive prompts. Preserve the familiar
 # agentbox/Claude `-p "prompt"` shortcut when the Codex runtime is selected.
@@ -708,14 +725,21 @@ if [ "$first_cmd" = "update" ]; then
   latest_version=$(curl -fsSL --max-time 5 \
     "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/latest" 2>/dev/null) || true
 
-  # If neither repo nor Claude Code version changed, skip rebuild
+  codex_installed=""
+  [ ! -f "$HOME/.agentbox/version-codex" ] || codex_installed=$(cat "$HOME/.agentbox/version-codex")
+  codex_latest=$(curl -fsSL --max-time 5 https://api.github.com/repos/openai/codex/releases/latest 2>/dev/null | perl -MJSON::PP -0777 -ne 'eval { print decode_json($_)->{tag_name} }') || true
+  if [ "$agent_runtime" = codex ]; then
+    installed_version="$codex_installed"
+    latest_version="$codex_latest"
+  fi
+  # Compare the selected runtime with its own upstream release.
   if [ "$git_before" = "$git_after" ] && [ -n "$installed_version" ] && [ -n "$latest_version" ] && [ "$installed_version" = "$latest_version" ]; then
     info "Already up to date"
     exit 0
   fi
 
-  rm -f "$HOME/.agentbox/.latest-version"
-  exec "$repo_path/install.sh" --update
+  rm -f "$HOME/.agentbox/.latest-version" "$HOME/.agentbox/.latest-version-codex"
+  exec "$repo_path/install.sh" --update --runtime "$agent_runtime"
 fi
 
 # --- Version staleness check ---
@@ -725,6 +749,10 @@ check_version_staleness() {
   local installed_version latest_version cache_file cache_age now file_mtime
   local version_file="$HOME/.agentbox/version"
   cache_file="$HOME/.agentbox/.latest-version"
+  if [ "$agent_runtime" = codex ]; then
+    version_file="$HOME/.agentbox/version-codex"
+    cache_file="$HOME/.agentbox/.latest-version-codex"
+  fi
 
   command -v date >/dev/null 2>&1 || return 0
 
@@ -750,8 +778,12 @@ check_version_staleness() {
 
   # Fetch from upstream if cache is stale or missing
   if [ -z "${latest_version:-}" ]; then
-    latest_version=$(curl -fsSL --max-time 2 \
-      "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/latest" 2>/dev/null) || true
+    if [ "$agent_runtime" = codex ]; then
+      latest_version=$(curl -fsSL --max-time 2 https://api.github.com/repos/openai/codex/releases/latest 2>/dev/null | perl -MJSON::PP -0777 -ne 'eval { print decode_json($_)->{tag_name} }') || true
+    else
+      latest_version=$(curl -fsSL --max-time 2 \
+        "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/latest" 2>/dev/null) || true
+    fi
     if [ -n "$latest_version" ]; then
       mkdir -p "$HOME/.agentbox"
       printf '%s' "$latest_version" > "$cache_file"
@@ -767,7 +799,7 @@ check_version_staleness() {
     warn "update available ($installed_version → $latest_version) — run: agentbox update"
   fi
 }
-[ "$print_mode" = false ] && check_version_staleness
+[ "$print_mode" = false ] && [ "$dry_run" = false ] && check_version_staleness
 
 # --- Dangerous path blocklist ---
 # These paths are blocked to prevent exposing sensitive host system data
@@ -958,6 +990,10 @@ validate_strict_host_path() {
   return 0
 }
 
+if [ "$first_cmd" = apply ]; then
+  apply_staged_session "${cmd_args[1]:-}"; exit 0
+fi
+
 # Validate the implicit working directory mount before any docker args are built.
 if ! validate_strict_host_path "Working directory" "$workdir" \
   "Run agentbox from the canonical path directly"; then
@@ -1121,6 +1157,20 @@ if [ -f ".agentbox.json" ]; then
       exit 1
     fi
 
+    if ! jq -e '
+      def optional(k; t): (has(k) | not) or (. [k] | type == t);
+      all(.[];
+        type == "object" and
+        ((keys - ["mounts","ports","network","audit_log","cpu","memory","pids_limit","ulimit_nofile","ulimit_fsize"]) | length == 0) and
+        optional("mounts"; "array") and optional("ports"; "array") and
+        optional("network"; "string") and optional("audit_log"; "boolean") and
+        optional("cpu"; "string") and optional("memory"; "string") and
+        optional("pids_limit"; "number") and optional("ulimit_nofile"; "string") and optional("ulimit_fsize"; "number") and
+        all((.mounts // [])[]; type == "object" and ((keys - ["path","readonly"]) | length == 0) and (.path | type == "string") and optional("readonly"; "boolean")) and
+        all((.ports // [])[]; type == "object" and ((keys - ["host","container"]) | length == 0) and (.host | type == "number") and (.container | type == "number"))
+      )' .agentbox.json >/dev/null; then
+      error "Invalid .agentbox.json profile schema (unknown field or incorrect type)"; exit 1
+    fi
     # Count available profiles (root-level keys in the JSON object)
     profile_count=$(jq 'keys | length' .agentbox.json 2>/dev/null || echo 0)
 
@@ -1171,13 +1221,11 @@ if [ -f ".agentbox.json" ]; then
         [ -z "$mount_json" ] && continue
         mount_path_type=$(printf '%s' "$mount_json" | jq -r '.path | type')
         if [ "$mount_path_type" != "string" ]; then
-          warn "Skipping mount with invalid path"
-          continue
+          error "Skipping mount with invalid path"; exit 1
         fi
         readonly_type=$(printf '%s' "$mount_json" | jq -r '.readonly | type')
         if [ "$readonly_type" != "boolean" ]; then
-          warn "Skipping mount with invalid readonly flag"
-          continue
+          error "Skipping mount with invalid readonly flag"; exit 1
         fi
         mount_path=$(printf '%s' "$mount_json" | jq -r '.path')
         mount_readonly=false
@@ -1188,33 +1236,34 @@ if [ -f ".agentbox.json" ]; then
         normalized_path=$(normalize_path "$mount_path")
         # Reject paths with colons (ambiguous Docker mount syntax)
         if [[ "$normalized_path" != /* ]]; then
-          warn "Skipping mount path that is not absolute: $mount_path"
+          error "Skipping mount path that is not absolute: $mount_path"; exit 1
         elif [[ "$mount_path" == *:* ]]; then
-          warn "Skipping mount path containing ':': $mount_path"
+          error "Skipping mount path containing ':': $mount_path"; exit 1
         # Reject paths with path traversal sequences (../)
         elif [[ "$mount_path" =~ (^|/)\.\.($|/) ]]; then
-          warn "Skipping mount with path traversal: $mount_path"
+          error "Skipping mount with path traversal: $mount_path"; exit 1
         # Reject paths with control characters (potential injection)
         elif [[ "$mount_path" =~ [[:cntrl:]] ]]; then
-          warn "Skipping mount with invalid characters"
+          error "Skipping mount with invalid characters"; exit 1
         # Check against dangerous path blocklist
         elif is_path_blocked "$normalized_path"; then
           error "Skipping mount path blocked by security policy: $mount_path"
-          continue
+          exit 1
         # Reject any symlink hop in the source path
         elif path_has_symlink_hop "$normalized_path"; then
           report_symlink_policy_error "Skipping mount path" "$mount_path" \
             "Specify the canonical path directly"
-          continue
+          exit 1
         # Warn if the host path doesn't exist (Docker would create it as root)
         elif [ ! -e "$mount_path" ]; then
-          warn "Mount path does not exist: $mount_path"
+          error "Mount path does not exist: $mount_path"
           note "Create it with: mkdir -p $mount_path"
+          exit 1
         else
           resolved_mount_path=$(resolve_physical_path "$normalized_path" 2>/dev/null || true)
           if [ -n "$resolved_mount_path" ] && is_path_blocked "$resolved_mount_path"; then
             error "Skipping mount path blocked after path resolution (security policy): $mount_path → $resolved_mount_path"
-            continue
+            exit 1
           fi
 
           validated_mount_spec="$normalized_path:$normalized_path"
@@ -1239,17 +1288,19 @@ if [ -f ".agentbox.json" ]; then
         container_port="${port_spec##*:}"
         # Validate both ports are numeric
         if ! [[ "$host_port" =~ ^[0-9]+$ ]] || ! [[ "$container_port" =~ ^[0-9]+$ ]]; then
-          warn "Invalid port specification: $port_spec"
+          error "Invalid port specification: $port_spec"; exit 1
         # Validate ports are in the valid TCP/UDP range
         elif [ "$host_port" -lt 1 ] || [ "$host_port" -gt 65535 ] || [ "$container_port" -lt 1 ] || [ "$container_port" -gt 65535 ]; then
-          warn "Port out of range (1-65535): $port_spec"
+          error "Port out of range (1-65535): $port_spec"; exit 1
         else
           # Bind to localhost only (127.0.0.1) to prevent external access
           extra_ports+=(-p "127.0.0.1:$port_spec")
         fi
       done < <(echo "$profile_config" | jq -r '.ports[]')
 
-      # Parse all scalar configuration values in a single jq call.
+
+
+# Parse all scalar configuration values in a single jq call.
       # Use "_" as sentinel for null/false to prevent bash read from collapsing
       # consecutive tab delimiters (bash treats multiple IFS chars as one).
       IFS=$'\t' read -r network_mode audit_log profile_cpu profile_memory \
@@ -1293,37 +1344,10 @@ network_args=()
 [[ ! "${network_mode:-bridge}" =~ ^(bridge|none)$ ]] && { error "Unsupported network mode '$network_mode' (allowed: bridge, none)"; exit 1; }
 [[ "${network_mode:-}" == "none" ]] && network_args=(--network none)
 
-# --- Auth and project trust gate ---
-# Host credentials are only mirrored after trust checks have passed.
-auth_state_required=true
-if [ "${network_mode:-bridge}" = "none" ] && ! is_project_trusted; then
-  auth_state_required=false
-  use_authless_sandbox_state
-fi
-
-if [ "$dry_run" != true ]; then
-  if [ "$auth_state_required" = true ]; then
-    require_runtime_auth
-  fi
-  if [ "${network_mode:-bridge}" != "none" ] && ! is_project_trusted; then
-    runtime_label="Claude"
-    [ "$agent_runtime" = "codex" ] && runtime_label="Codex"
-    error_block "Project is not trusted for networked $runtime_label credentials: $workdir" \
-      "Run 'agentbox trust' from this project directory after reviewing it, or set network: \"none\" in .agentbox.json."
-    exit 1
-  fi
-  if [ "$auth_state_required" = true ]; then
-    prepare_sandbox_state
-  else
-    prepare_sandbox_non_auth_state
-  fi
-else
-  prepare_sandbox_non_auth_state
-fi
-prepare_empty_runtime_state
-select_runtime_mounts
-
 # --- Resource limit validation ---
+if [[ "${profile_cpu:-}" =~ ^0+(\.0+)?$ ]] || [[ "${profile_memory:-}" =~ ^0+[bkmgBKMG]?$ ]] || [ "${profile_pids_limit:-1}" = 0 ]; then
+  error "Resource limits must be greater than zero"; exit 1
+fi
 if [ -n "${profile_cpu:-}" ] && ! [[ "$profile_cpu" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
   error "Invalid cpu format '$profile_cpu' (expected: integer or decimal, e.g. '4' or '1.5')"; exit 1
 fi
@@ -1348,6 +1372,25 @@ resource_args+=(--pids-limit "${profile_pids_limit:-$DEFAULT_PIDS_LIMIT}")
 [ -n "${profile_ulimit_nofile:-}" ] && resource_args+=(--ulimit "nofile=$profile_ulimit_nofile")
 [ -n "${profile_ulimit_fsize:-}" ] && resource_args+=(--ulimit "fsize=$profile_ulimit_fsize:$profile_ulimit_fsize")
 
+# Complete the launch plan before creating state or accessing credentials.
+[ "$launch_mode" != offline ] || network_mode=none
+if [ "$broker_mode" = true ]; then
+  [ "$launch_mode" != offline ] || { error "--broker cannot be combined with offline"; exit 1; }
+  [ ${#extra_ports[@]} -eq 0 ] || { error "--broker does not publish ports"; exit 1; }
+  network_mode=broker
+fi
+network_args=()
+if [ "${network_mode:-bridge}" = none ] || [ "$broker_mode" = true ]; then network_args=(--network none); fi
+if [ "$staged_mode" = true ]; then
+  [ "$readonly_mode" = false ] || { error "--staged requires writable edit mode"; exit 1; }
+  [ ${#extra_mounts[@]} -le 2 ] || { error "--staged cannot expose additional host mounts"; exit 1; }
+fi
+select_plugin_snapshot
+# Offline and broker launches never mirror reusable host authentication.
+auth_state_required=true
+if [ "${network_mode:-bridge}" = none ] || [ "$broker_mode" = true ]; then auth_state_required=false; fi
+configure_session_paths "$AGENTBOX_STATE_DIR/sessions/preview"
+
 # --- Per-project Dockerfile ---
 # If a project provides .agentbox.Dockerfile, use a custom image layered on top
 # of the base image for project-specific dependencies. Actual builds happen only
@@ -1368,7 +1411,7 @@ if [ -f ".agentbox.Dockerfile" ]; then
       "Reinstall agentbox so project images can use the host-controlled entrypoint."
     exit 1
   fi
-  run_image="${IMAGE_NAME}-project"
+  run_image="agentbox-project-$agent_runtime-$(trusted_project_key)"
   project_runtime_args+=(
     -v "$TRUSTED_ENTRYPOINT_FILE:/home/claude/entrypoint.sh:ro"
   )
@@ -1408,16 +1451,54 @@ if [ ! -f "$SECCOMP_PROFILE" ]; then
   exit 1
 fi
 
+if [ "$dry_run" = true ] && [ "$staged_mode" = true ]; then
+  workdir="$SESSION_DIR/workspace"
+  if [ -n "$git_dir" ]; then extra_mounts=(-v "$git_dir:$workdir/.git:ro"); fi
+fi
+if [ "$inspect_mode" = true ]; then inspect_plan; exit 0; fi
+if [ "$dry_run" != true ]; then
+  if [ "${network_mode:-bridge}" != none ] && ! is_project_trusted; then
+    error "Project is not trusted. Review it, then run agentbox trust."; exit 1
+  fi
+  if [ "$auth_state_required" = true ]; then require_runtime_auth; fi
+  ensure_state_root
+  ensure_private_dir "$AGENTBOX_STATE_DIR/sessions"
+  old_umask=$(umask); umask 077
+  session_path=$(mktemp -d "$AGENTBOX_STATE_DIR/sessions/session.XXXXXXXX")
+  umask "$old_umask"
+  configure_session_paths "$session_path"
+  trap cleanup_session EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  ensure_sandbox_state_dirs
+  if [ "$auth_state_required" = true ]; then prepare_sandbox_state
+  else use_authless_sandbox_state; prepare_sandbox_non_auth_state; fi
+  prepare_empty_runtime_state
+  if [ "$broker_mode" = true ]; then
+    start_broker
+    if [ "$agent_runtime" = codex ]; then
+      write_private_file_content "$ACTIVE_SANDBOX_CODEX_DIR/config.toml" \
+        'model_provider = "agentbox"
+[model_providers.agentbox]
+name = "agentbox broker"
+base_url = "http://127.0.0.1:18080/v1"
+wire_api = "responses"'
+    fi
+  fi
+  [ "$staged_mode" != true ] || stage_workspace
+fi
+select_runtime_mounts
+
 # --- Build the docker run command ---
 # Use --rm for ephemeral containers; use named containers when audit logging
 # is enabled so we can dump logs after the session ends.
-container_args=()
+container_name="agentbox-${SESSION_DIR##*/}-$$"
+container_args=(--name "$container_name" --label agentbox.managed=true)
 if [ "$audit_log" = "true" ]; then
   # Name includes timestamp and PID for uniqueness across concurrent sessions
-  container_name="agentbox-$(date +%s)-$$"
-  container_args+=(--name "$container_name")
+  : # Retain the named container until logs have been collected.
   # Ensure the logs directory exists for session log dumps
-  ensure_private_dir "$AGENTBOX_STATE_DIR/logs"
+  [ "$dry_run" = true ] || ensure_private_dir "$AGENTBOX_STATE_DIR/logs"
 else
   # Auto-remove container on exit for zero disk overhead
   container_args+=(--rm)
@@ -1435,13 +1516,26 @@ if [ "$print_mode" = true ]; then
     tty_flags=(-i)
   fi
 else
-  tty_flags=(-it)
+  if [ -t 0 ] && [ -t 1 ]; then tty_flags=(-it); else tty_flags=(-i); fi
 fi
 
 runtime_env_args=(-e "AGENTBOX_RUNTIME=$agent_runtime")
 if [ "$agent_runtime" = "codex" ] && [ "$auth_state_required" = true ] && [ -n "${OPENAI_API_KEY:-}" ]; then
   runtime_env_args+=(-e "OPENAI_API_KEY")
 fi
+
+if [ "$agent_runtime" = claude ] && [ "$auth_state_required" = true ] && [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+  runtime_env_args+=(-e ANTHROPIC_API_KEY)
+fi
+if [ "$broker_mode" = true ]; then
+  runtime_env_args+=(-e AGENTBOX_BROKER_TOKEN -e AGENTBOX_BROKER=true)
+  extra_mounts+=(-v "${broker_socket_volume:-agentbox-socket-preview}:/run/agentbox:ro")
+  if [ "$agent_runtime" = claude ]; then
+    runtime_env_args+=(-e ANTHROPIC_BASE_URL=http://127.0.0.1:18080 -e ANTHROPIC_AUTH_TOKEN=agentbox-session -e CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1)
+  fi
+fi
+plugins_ro_suffix="$ro_suffix"
+[ "$plugins_enabled" != true ] || plugins_ro_suffix=":ro"
 
 # Assemble the complete docker run command as an array for safe quoting
 docker_cmd=(
@@ -1490,7 +1584,7 @@ docker_cmd=(
   # Mount the sandbox mirror of Claude's JSON state file.
   -v "$MOUNT_SANDBOX_CLAUDE_STATE_FILE:/home/claude/.claude.json${ro_suffix}"
   # Mount sandbox plugins directory (isolated from host ~/.claude/plugins/)
-  -v "$MOUNT_SANDBOX_PLUGINS_DIR:/home/claude/.claude/plugins${ro_suffix}"
+  -v "$MOUNT_SANDBOX_PLUGINS_DIR:/home/claude/.claude/plugins${plugins_ro_suffix}"
   # Mount the sandbox mirror of Codex state/config/auth.
   -v "$MOUNT_SANDBOX_CODEX_DIR:/home/claude/.codex${ro_suffix}"
   # Keep sandbox-awareness Codex AGENTS.md writable via tmpfs-backed runtime path.
@@ -1532,36 +1626,14 @@ if [ -f ".agentbox.Dockerfile" ]; then
   fi
 fi
 
-# --- Execute the container ---
-if [ "$audit_log" = "true" ]; then
-  # With audit logging: use a named container so we can dump logs afterward
-  # shellcheck disable=SC2317,SC2329
-  cleanup() {
-    # On interrupt/termination, force-stop and remove the named container
-    docker kill "$container_name" &>/dev/null || true
-    docker rm "$container_name" &>/dev/null || true
-  }
-  # Register cleanup for SIGINT (Ctrl+C) and SIGTERM
-  trap cleanup INT TERM
-
-  # Run the container; capture the exit code
-  exit_code=0
-  "${docker_cmd[@]}" || exit_code=$?
-
-  # Dump the container's stdout/stderr to a log file for audit review
-  log_file=$AGENTBOX_STATE_DIR/logs/${container_name}.log
-  old_umask=$(umask)
-  umask 077
+# Keep the wrapper alive so private state is removed after Docker exits.
+exit_code=0
+"${docker_cmd[@]}" || exit_code=$?
+if [ "$audit_log" = true ]; then
+  log_file="$AGENTBOX_STATE_DIR/logs/$container_name.log"
+  old_umask=$(umask); umask 077
   docker logs "$container_name" > "$log_file" 2>&1 || true
   umask "$old_umask"
-  chmod 600 "$log_file" 2>/dev/null || true
-  # Remove the named container now that logs are captured
-  docker rm "$container_name" &>/dev/null || true
   info "Session log: $log_file"
-
-  # Remove the trap and exit with the container's exit code
-  trap - INT TERM
-  exit $exit_code
-else
-  exec "${docker_cmd[@]}"
 fi
+exit "$exit_code"

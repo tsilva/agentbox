@@ -103,12 +103,11 @@ jobs:
 
       # Start a container from the image and pass "--version" as an argument.
       # "--rm" automatically removes the container after it exits (cleanup).
-      # "|| true" means: if the command fails, treat it as success anyway.
-      # This is needed because Claude Code may exit non-zero when not
-      # authenticated, but we still want to verify the binary is callable.
-      # The purpose is to confirm the binary exists and can start at all.
+      # Version checks must succeed for both installed agent binaries.
       - name: Verify Claude binary accessible
-        run: docker run --rm agentbox --version || true
+        run: |
+          docker run --rm agentbox --version
+          docker run --rm --entrypoint codex agentbox --version
 
 
   # ---------------------------------------------------------------------------
@@ -186,3 +185,25 @@ jobs:
       # Version staleness check tests verify the update warning logic
       - name: Run version check tests
         run: ./tests/version-check-test.sh
+
+      - name: Test launcher state, credentials, and staging
+        run: python3 tests/launcher-test.py
+
+      - name: Build broker and verify launcher behavior
+        run: |
+          docker build --target broker -t agentbox-broker .
+          ./tests/launcher-docker-test.sh
+
+      - name: Verify native client API protocols without provider access
+        run: docker run --rm -i --network none --entrypoint python3 agentbox - < tests/provider-protocol-test.py
+
+  broker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Test broker with race detection
+        run: |
+          builder=$(sed -n 's/^ARG GO_IMAGE=//p' Dockerfile)
+          docker run --rm -v "$PWD/broker:/src:ro" -w /src "$builder" go test -race ./...

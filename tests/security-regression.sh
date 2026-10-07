@@ -19,13 +19,12 @@ echo "=== Security Regression Tests ==="
 echo ""
 
 # These tests use the template directly with --dry-run to inspect the generated command
-TEMPLATE="$REPO_ROOT/scripts/agentbox-template.sh"
 
 # Create a processed version of the template with placeholders replaced
 PROCESSED_TEMPLATE=$(mktemp)
-sed 's|PLACEHOLDER_IMAGE_NAME|agentbox|g' \
-    "$TEMPLATE" > "$PROCESSED_TEMPLATE"
+"$REPO_ROOT/scripts/render-cli.sh" agentbox > "$PROCESSED_TEMPLATE"
 chmod +x "$PROCESSED_TEMPLATE"
+TEST_IMAGE_LABEL="agentbox-security-${PROCESSED_TEMPLATE##*/}"
 
 FAKE_HOMES=()
 LAST_FAKE_HOME=""
@@ -45,6 +44,10 @@ setup_fake_home() {
 
 # Cleanup on exit
 cleanup() {
+  local image
+  for image in $(docker image ls --filter "label=agentbox.test=$TEST_IMAGE_LABEL" --format '{{.Repository}}:{{.Tag}}' 2>/dev/null); do
+    docker image rm "$image" >/dev/null 2>&1 || true
+  done
   rm -f "$PROCESSED_TEMPLATE" 2>/dev/null || true
   if [ "${#FAKE_HOMES[@]}" -gt 0 ]; then
     for fake_home in "${FAKE_HOMES[@]}"; do
@@ -275,10 +278,10 @@ output=$("$PROCESSED_TEMPLATE" --claude --dry-run --readonly 2>&1)
 
 # The working directory should have :ro suffix in readonly mode
 assert_matches "$output" "$(pwd):[^:]*:ro" "workdir is read-only in readonly mode"
-assert_contains "$output" "$HOME/.agentbox/claude-config:/home/claude/.claude:ro" "sandbox Claude config is read-only in readonly mode"
-assert_contains "$output" "$HOME/.agentbox/claude-dotconfig:/home/claude/.config:ro" "sandbox dotconfig is read-only in readonly mode"
-assert_contains "$output" "$HOME/.agentbox/.claude.json:/home/claude/.claude.json:ro" "sandbox state is read-only in readonly mode"
-assert_contains "$output" "$HOME/.agentbox/plugins:/home/claude/.claude/plugins:ro" "sandbox plugins are read-only in readonly mode"
+assert_contains "$output" "$HOME/.agentbox/sessions/preview/claude-config:/home/claude/.claude:ro" "sandbox Claude config is read-only in readonly mode"
+assert_contains "$output" "$HOME/.agentbox/sessions/preview/claude-dotconfig:/home/claude/.config:ro" "sandbox dotconfig is read-only in readonly mode"
+assert_contains "$output" "$HOME/.agentbox/sessions/preview/.claude.json:/home/claude/.claude.json:ro" "sandbox state is read-only in readonly mode"
+assert_contains "$output" "$HOME/.agentbox/sessions/preview/plugins:/home/claude/.claude/plugins:ro" "sandbox plugins are read-only in readonly mode"
 
 require_docker
 require_image
@@ -323,19 +326,22 @@ SCRIPT
 RUN chmod 755 /opt/claude-code/claude && chown claude:claude /opt/claude-code/claude
 USER claude
 EOF
+printf '\nLABEL agentbox.test="%s"\n' "$TEST_IMAGE_LABEL" >> .agentbox.Dockerfile
 
+HOME="$LAST_FAKE_HOME" "$PROCESSED_TEMPLATE" plugins refresh >/dev/null 2>&1
 HOME="$LAST_FAKE_HOME" "$PROCESSED_TEMPLATE" trust >/dev/null 2>&1
 
 readonly_exit=0
-if output=$(HOME="$LAST_FAKE_HOME" DOCKER_HOST="$REAL_DOCKER_HOST" "$PROCESSED_TEMPLATE" --claude --allow-project-dockerfile --readonly -p "self-check" 2>&1); then
+if output=$(HOME="$LAST_FAKE_HOME" DOCKER_HOST="$REAL_DOCKER_HOST" "$PROCESSED_TEMPLATE" --claude --allow-project-dockerfile --readonly --plugins -p "self-check" 2>&1); then
   readonly_exit=0
 else
   readonly_exit=$?
 fi
 assert_equals "$readonly_exit" "0" "readonly startup exits successfully"
+[ "$readonly_exit" -eq 0 ] || printf '%s\n' "$output" >&2
 assert_contains "$output" "stub claude ran" "readonly startup reaches Claude"
-assert_equals "$(tr -d '\n' < "$LAST_FAKE_HOME/.agentbox/.claude.json")" '{"persisted":false}' "readonly keeps sandbox state unchanged"
-assert_equals "$(tr -d '\n' < "$LAST_FAKE_HOME/.agentbox/plugins/cache/example-market/example-plugin/plugin.js")" 'host-plugin' "readonly keeps sandbox plugins unchanged"
+assert_equals "$(tr -d '\n' < "$LAST_FAKE_HOME/.claude.json")" '{"persisted":false}' "readonly keeps sandbox state unchanged"
+assert_equals "$(tr -d '\n' < "$LAST_FAKE_HOME/.claude/plugins/cache/example-market/example-plugin/plugin.js")" 'host-plugin' "readonly keeps sandbox plugins unchanged"
 
 teardown_test_dir
 
@@ -416,6 +422,7 @@ RUN chmod 755 /evil-entrypoint
 USER root
 ENTRYPOINT ["/evil-entrypoint"]
 EOF
+printf '\nLABEL agentbox.test="%s"\n' "$TEST_IMAGE_LABEL" >> .agentbox.Dockerfile
 
 runtime_exit=0
 if output=$(HOME="$LAST_FAKE_HOME" DOCKER_HOST="$REAL_DOCKER_HOST" "$PROCESSED_TEMPLATE" --claude --allow-project-dockerfile -p "runtime-contract" 2>&1); then
@@ -424,6 +431,7 @@ else
   runtime_exit=$?
 fi
 assert_equals "$runtime_exit" "0" "project runtime contract exits successfully"
+[ "$runtime_exit" -eq 0 ] || printf '%s\n' "$output" >&2
 assert_contains "$output" "trusted entrypoint reached" "trusted entrypoint overrides project entrypoint"
 assert_contains "$output" "uid=$CONTAINER_UID" "project image forced to host UID"
 assert_not_contains "$output" "MALICIOUS_ENTRYPOINT_RAN" "project entrypoint is not executed"

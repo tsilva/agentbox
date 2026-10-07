@@ -18,8 +18,20 @@ ensure_dir() {
 ensure_dir /home/claude/.local/bin
 ensure_dir /home/claude/.claude
 ensure_dir /home/claude/.codex
-ln -sf /opt/claude-code/claude /home/claude/.local/bin/claude
-ln -sf /opt/codex/codex /home/claude/.local/bin/codex
+[ ! -x /opt/claude-code/claude ] || ln -sf /opt/claude-code/claude /home/claude/.local/bin/claude
+[ ! -x /opt/codex/codex ] || ln -sf /opt/codex/codex /home/claude/.local/bin/codex
+
+if [ "${AGENTBOX_BROKER:-false}" = true ]; then
+  /opt/agentbox/agentbox-broker relay /run/agentbox/api.sock &
+  relay_pid=$!
+  ready=false
+  for _ in {1..50}; do
+    kill -0 "$relay_pid" 2>/dev/null || { echo 'agentbox relay failed' >&2; exit 1; }
+    if /opt/agentbox/agentbox-broker probe 127.0.0.1:18080 >/dev/null 2>&1; then ready=true; break; fi
+    sleep 0.1
+  done
+  [ "$ready" = true ] || { echo 'agentbox relay did not start' >&2; exit 1; }
+fi
 
 # Intentionally do not auto-source project-managed activation scripts.
 # A repo-controlled .venv/bin/activate would execute arbitrary shell code
@@ -68,7 +80,11 @@ SANDBOX_EOF
       echo "$AGENTBOX_EXTRA_MOUNTS"
     fi
 
-    if [ "${AGENTBOX_NETWORK_MODE:-bridge}" = "none" ]; then
+    if [ "${AGENTBOX_NETWORK_MODE:-bridge}" = "broker" ]; then
+      echo ""
+      echo "## Provider-only Access"
+      echo "Networking is disabled. Provider requests use a local relay and a credential broker. Other network access fails."
+    elif [ "${AGENTBOX_NETWORK_MODE:-bridge}" = "none" ]; then
       echo ""
       echo "## Network Isolated"
       echo "This container has no network access. All external requests will fail."
@@ -87,7 +103,7 @@ write_sandbox_awareness "$codex_agents_path" "Codex Instructions"
 # Replace this process with the selected agent runtime in fully autonomous mode.
 case "${AGENTBOX_RUNTIME:-claude}" in
   claude)
-    exec claude --dangerously-skip-permissions --permission-mode plan "$@"
+    exec claude --dangerously-skip-permissions "$@"
     ;;
   codex)
     exec codex --dangerously-bypass-approvals-and-sandbox "$@"

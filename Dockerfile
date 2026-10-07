@@ -1,146 +1,79 @@
-# =============================================================================
-# agentbox Dockerfile
-# Runs coding agents with full autonomy inside an isolated container.
-# =============================================================================
+# syntax=docker/dockerfile:1
+# Shared minimal runtime; each published target includes only its selected agent.
+ARG BASE_IMAGE=debian:stable-slim@sha256:eb593cf2c358cacef45ca0a424bbc7d30cfa3466265fc2662b9466a0ca6ba1c5
+ARG GO_IMAGE=golang:1.26-bookworm@sha256:dc9ad6c05acc7a88e5b71bde60a5fe3bd4b9f0db209011711b464107438a8107
+FROM ${GO_IMAGE} AS broker-build
+WORKDIR /src
+COPY broker/ ./
+RUN GOTOOLCHAIN=local go test ./... && CGO_ENABLED=0 GOTOOLCHAIN=local go build -trimpath -ldflags='-s -w' -o /agentbox-broker .
 
-# --- Base Image ---
-# Debian stable-slim: minimal footprint while providing a full apt ecosystem.
-ARG BASE_IMAGE=debian:stable-slim
-FROM ${BASE_IMAGE}
-
-# --- OCI Metadata ---
+FROM ${BASE_IMAGE} AS core
 LABEL org.opencontainers.image.title="agentbox" \
-      org.opencontainers.image.description="Claude Code and Codex CLI in an isolated container"
-
-# --- System Dependencies ---
-# Install required packages in a single layer to minimize image size:
-#   curl             — download Claude Code binary and version manifest
-#   git              — coding agents use git for project context and diffs
-#   jq               — parse JSON manifests (checksum verification) and project configs
-#   python3          — required by many Claude Code tool-use workflows
-#   python3-venv     — create isolated Python environments
-#   python-is-python3 — symlinks `python` → `python3` for compatibility
-#   ripgrep          — used by Codex and commonly expected by coding workflows
-#   tar              — extract Codex CLI release archives
-# The apt cache is removed after install to keep the layer small.
+      org.opencontainers.image.description="Autonomous coding agents with explicit filesystem and network grants"
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    git \
-    jq \
-    python3 \
-    python3-venv \
-    python-is-python3 \
-    ripgrep \
-    tar \
-    && rm -rf /var/lib/apt/lists/*
-
-# --- User Setup + Agent CLIs + Python Tooling ---
-# Create a non-root user "claude". Claude Code refuses to run
-# --dangerously-skip-permissions as root, so a regular user is required.
-# On macOS/Docker Desktop, UID mapping is handled by the VM layer.
-RUN useradd -m -s /bin/bash claude && \
-    mkdir -p \
-      /opt/claude-code \
-      /opt/codex \
-      /opt/uv/bin \
-      /home/claude/.config \
-      /home/claude/.local/bin \
-      /home/claude/.claude/plugins \
-      /home/claude/.claude/plans \
-      /home/claude/.claude/runtime \
-      /home/claude/.codex/log \
-      /home/claude/.codex/runtime \
-      /home/claude/.codex/sessions \
-      /home/claude/.codex/tmp && \
-    chmod 755 /home/claude && \
-    chown -R claude:claude \
-      /opt/claude-code \
-      /opt/codex \
-      /opt/uv \
-      /home/claude/.config \
-      /home/claude/.local \
-      /home/claude/.claude \
-      /home/claude/.codex
-
-# Switch to non-root user for all subsequent commands.
-USER claude
-
-# --- Environment Variables ---
-# PATH: include agent binary locations and user-local bin (uv, symlinks).
-# NODE_OPTIONS: force IPv4-first DNS resolution to avoid IPv6 routing failures
-#   common inside Docker bridge networks.
-# NODE_EXTRA_CA_CERTS: use the system CA certificate bundle instead of
-#   Claude Code's bundled certs, which may be incomplete for some environments.
-# PYTHONDONTWRITEBYTECODE: skip .pyc file generation (unnecessary in containers).
-# PYTHONUNBUFFERED: flush stdout/stderr immediately for real-time log output.
-# NOTE: PATH must be set early so uv is available for subsequent RUN commands.
+    ca-certificates curl git jq ripgrep tar && rm -rf /var/lib/apt/lists/*
+RUN useradd -m -s /bin/bash claude && mkdir -p \
+    /opt/claude-code /opt/codex /opt/uv/bin /opt/agentbox \
+    /home/claude/.config /home/claude/.local/bin \
+    /home/claude/.claude/plugins /home/claude/.claude/plans /home/claude/.claude/runtime \
+    /home/claude/.codex/log /home/claude/.codex/runtime /home/claude/.codex/sessions /home/claude/.codex/tmp \
+    && chown -R claude:claude /opt/claude-code /opt/codex /opt/uv /home/claude \
+    && chmod 755 /home/claude
+COPY --from=broker-build /agentbox-broker /opt/agentbox/agentbox-broker
 ENV PATH="/home/claude/.local/bin:/opt/uv/bin:/opt/claude-code:/opt/codex:$PATH" \
-    UV_INSTALL_DIR=/opt/uv/bin \
     NODE_OPTIONS="--dns-result-order=ipv4first" \
-    NODE_EXTRA_CA_CERTS="/etc/ssl/certs/ca-certificates.crt" \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
-
-# --- uv (Python package installer) ---
-# Install uv to /opt/uv/bin so it persists on a read-only rootfs.
-# ~/.local is a tmpfs at runtime, so user-local installs would be lost.
+    NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt \
+    PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+# Python tools are optional. No pip dependencies enter the minimal images.
+ARG PYTHON_TOOLS=0
 ARG UV_VERSION=0.7.12
-RUN set -eux; \
-    case "$(uname -m)" in \
-      x86_64|amd64) uv_arch="x86_64" ;; \
-      aarch64|arm64) uv_arch="aarch64" ;; \
-      *) echo "Unsupported architecture for uv: $(uname -m)" >&2; exit 1 ;; \
-    esac; \
-    uv_target="${uv_arch}-unknown-linux-gnu"; \
-    uv_artifact="uv-${uv_target}.tar.gz"; \
-    uv_base_url="https://github.com/astral-sh/uv/releases/download/${UV_VERSION}"; \
-    uv_tmp="$(mktemp -d)"; \
-    curl -fsSL -o "$uv_tmp/$uv_artifact" "$uv_base_url/$uv_artifact"; \
-    curl -fsSL -o "$uv_tmp/$uv_artifact.sha256" "$uv_base_url/$uv_artifact.sha256"; \
-    (cd "$uv_tmp" && sha256sum -c "$uv_artifact.sha256"); \
-    tar -xzf "$uv_tmp/$uv_artifact" -C "$uv_tmp"; \
-    install -m 755 "$uv_tmp/uv-${uv_target}/uv" /opt/uv/bin/uv; \
-    install -m 755 "$uv_tmp/uv-${uv_target}/uvx" /opt/uv/bin/uvx; \
-    rm -rf "$uv_tmp"
-
-# --- Common Python Packages ---
-# Pre-install pytest for common testing workflows.
-# Requires root for system-wide installation; switch back to claude after.
-USER root
-RUN uv pip install --system --break-system-packages pytest
+COPY requirements.txt constraints.txt /tmp/python-tools/
+RUN set -eu; if [ "$PYTHON_TOOLS" = 1 ]; then \
+      apt-get update && apt-get install -y --no-install-recommends python3 python3-venv python-is-python3 && \
+      rm -rf /var/lib/apt/lists/*; \
+      case "$(uname -m)" in x86_64) arch=x86_64 ;; aarch64) arch=aarch64 ;; *) exit 1 ;; esac; \
+      artifact="uv-${arch}-unknown-linux-gnu.tar.gz"; \
+      url="https://github.com/astral-sh/uv/releases/download/$UV_VERSION"; \
+      cd /tmp && curl -fsSL -o "$artifact" "$url/$artifact" && \
+      curl -fsSL -o "$artifact.sha256" "$url/$artifact.sha256" && sha256sum -c "$artifact.sha256" && \
+      tar -xzf "$artifact" && install -m 755 "uv-${arch}-unknown-linux-gnu/uv" /opt/uv/bin/uv && \
+      install -m 755 "uv-${arch}-unknown-linux-gnu/uvx" /opt/uv/bin/uvx && \
+      cd /tmp/python-tools && uv pip install --system --break-system-packages \
+        --exclude-newer "$(date --utc --date='7 days ago' +%Y-%m-%dT%H:%M:%SZ)" -r requirements.txt; \
+    elif [ "$PYTHON_TOOLS" != 0 ]; then exit 1; fi && rm -rf /tmp/*
+COPY --chmod=755 entrypoint.sh /home/claude/entrypoint.sh
+COPY --chmod=755 scripts/install-agent-clis.sh /opt/agentbox/install-agent-clis.sh
 USER claude
-
-# --- Working Directory ---
-# /workspace is the default working directory. At runtime, the host project
-# directory is bind-mounted here (or at its real path for path compatibility).
 WORKDIR /workspace
-
-# --- Entrypoint ---
-# Copy the entrypoint script. The entrypoint handles argument parsing
-# (e.g., "shell" for debug access) and launches the selected agent runtime.
-COPY --chmod=755 --chown=claude:claude entrypoint.sh /home/claude/entrypoint.sh
-
 ENTRYPOINT ["/home/claude/entrypoint.sh"]
-
-# --- Agent Binaries ---
-# Download the Claude Code standalone binary from Google Cloud Storage and
-# the Codex CLI standalone binary from OpenAI's GitHub releases.
-# The install script handles version detection, architecture mapping,
-# binary download, and SHA256 checksum verification.
-# CACHE_BUST: defaults to "stable" so regular builds use Docker cache.
-# Override with a timestamp (e.g., --build-arg CACHE_BUST=$(date +%s))
-# to force re-downloading the latest agent binaries.
-# NOTE: This block is intentionally last so that cache-busting only
-# invalidates the agent download layer, not the
-# uv/pytest/entrypoint layers above which rarely change.
 ARG CACHE_BUST=stable
 ARG CLAUDE_CODE_VERSION=latest
 ARG CLAUDE_CODE_SHA256=
 ARG CODEX_RELEASE_TAG=latest
 ARG CODEX_SHA256=
-COPY --chmod=755 --chown=claude:claude scripts/install-agent-clis.sh /tmp/install-agent-clis.sh
-RUN CLAUDE_CODE_VERSION="$CLAUDE_CODE_VERSION" \
-    CLAUDE_CODE_SHA256="$CLAUDE_CODE_SHA256" \
-    CODEX_RELEASE_TAG="$CODEX_RELEASE_TAG" \
-    CODEX_SHA256="$CODEX_SHA256" \
-    /tmp/install-agent-clis.sh && rm /tmp/install-agent-clis.sh
+ARG CODEX_CODE_MODE_SHA256=
+ENV CLAUDE_CODE_VERSION=$CLAUDE_CODE_VERSION CLAUDE_CODE_SHA256=$CLAUDE_CODE_SHA256 \
+    CODEX_RELEASE_TAG=$CODEX_RELEASE_TAG CODEX_SHA256=$CODEX_SHA256 \
+    CODEX_CODE_MODE_SHA256=$CODEX_CODE_MODE_SHA256
+
+FROM core AS claude
+RUN AGENT_RUNTIME=claude /opt/agentbox/install-agent-clis.sh
+ENV AGENTBOX_RUNTIME=claude
+
+FROM core AS codex
+RUN AGENT_RUNTIME=codex /opt/agentbox/install-agent-clis.sh
+ENV AGENTBOX_RUNTIME=codex
+
+FROM ${BASE_IMAGE} AS broker
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && \
+    rm -rf /var/lib/apt/lists/* && useradd -m broker
+COPY --from=broker-build /agentbox-broker /opt/agentbox/agentbox-broker
+USER broker
+ENTRYPOINT ["/opt/agentbox/agentbox-broker"]
+
+# Compatibility target for development and the existing isolation suite.
+FROM core AS development
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/*
+USER claude
+RUN AGENT_RUNTIME=both /opt/agentbox/install-agent-clis.sh

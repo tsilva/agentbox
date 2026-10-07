@@ -63,6 +63,7 @@ do_build() {
       --build-arg "CLAUDE_CODE_SHA256=$AGENTBOX_CLAUDE_CODE_SHA256"
       --build-arg "CODEX_RELEASE_TAG=$AGENTBOX_CODEX_RELEASE_TAG"
       --build-arg "CODEX_SHA256=$AGENTBOX_CODEX_SHA256"
+      --build-arg "CODEX_CODE_MODE_SHA256=${AGENTBOX_CODEX_CODE_MODE_SHA256:-}"
     )
   fi
 
@@ -87,7 +88,7 @@ do_kill_containers() {
 
   # List container IDs filtered by the ancestor image
   local containers
-  containers=$(docker ps -q --filter "ancestor=$IMAGE_NAME" 2>/dev/null)
+  containers=$(docker ps -q --filter label=agentbox.managed=true 2>/dev/null)
 
   # Nothing to do if no containers are running
   if [ -z "$containers" ]; then
@@ -114,7 +115,8 @@ case "$cmd" in
     do_build "${2:-}"
     ;;
   install)
-    exec "$REPO_ROOT/install.sh"
+    shift
+    exec "$REPO_ROOT/install.sh" "$@"
     ;;
   uninstall)
     exec "$REPO_ROOT/uninstall.sh"

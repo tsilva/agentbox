@@ -62,8 +62,7 @@ fi
 # Simulates what do_install() does: replace placeholders with real values
 echo ""
 echo "--- Template validation ---"
-template_content=$(sed 's|PLACEHOLDER_IMAGE_NAME|agentbox|g' \
-  "$REPO_ROOT/scripts/agentbox-template.sh")
+template_content=$("$REPO_ROOT/scripts/render-cli.sh" agentbox)
 # Pipe the substituted template through bash -n to validate syntax
 if echo "$template_content" | bash -n 2>/dev/null; then
   pass "Template with substituted placeholders is valid bash"

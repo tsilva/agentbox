@@ -30,17 +30,18 @@ fetch_latest_claude_version() {
 }
 
 build_cache_bust_key() {
-  local latest_version
+  local latest_version codex_version
+  codex_version=$(curl -fsSL --max-time "${1:-5}" https://api.github.com/repos/openai/codex/releases/latest 2>/dev/null | perl -MJSON::PP -0777 -ne 'eval { print decode_json($_)->{tag_name} }') || true
   latest_version=$(fetch_latest_claude_version "${1:-5}" 2>/dev/null) || true
   if [ -n "$latest_version" ]; then
-    printf '%s' "$latest_version"
+    printf '%s-%s' "$latest_version" "${codex_version:-unknown}"
   else
     date +%s
   fi
 }
 
 clear_latest_version_cache() {
-  rm -f "$AGENTBOX_STATE_DIR/.latest-version"
+  rm -f "$AGENTBOX_STATE_DIR/.latest-version" "$AGENTBOX_STATE_DIR/.latest-version-codex"
 }
 
 cleanup_replaced_image() {
@@ -57,12 +58,16 @@ cleanup_replaced_image() {
 }
 
 persist_installed_version() {
-  local image_name="$1"
-  local installed_version
-
-  installed_version=$(docker run --rm --entrypoint cat "$image_name" /opt/claude-code/VERSION 2>/dev/null) || true
-  if [ -n "$installed_version" ]; then
-    mkdir -p "$AGENTBOX_STATE_DIR"
-    printf '%s' "$installed_version" > "$AGENTBOX_STATE_DIR/version"
-  fi
+  local image_name="$1" runtime installed_version
+  mkdir -p "$AGENTBOX_STATE_DIR"
+  for runtime in claude-code codex; do
+    installed_version=$(docker run --rm --entrypoint cat "$image_name" "/opt/$runtime/VERSION" 2>/dev/null) || true
+    if [ -n "$installed_version" ]; then
+      if [ "$runtime" = claude-code ]; then
+        printf '%s' "$installed_version" > "$AGENTBOX_STATE_DIR/version"
+      else
+        printf '%s' "$installed_version" > "$AGENTBOX_STATE_DIR/version-codex"
+      fi
+    fi
+  done
 }
