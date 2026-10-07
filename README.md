@@ -1,8 +1,10 @@
-<div align="center">
+<p align="center">
   <img src="./logo.png" alt="agentbox" width="420" />
-
-  **⚡ Full autonomy. Zero blast radius. 🛡️**
-</div>
+  <br />
+  <!-- repo-tagline:start -->
+  <strong>⚡ Full autonomy. Zero blast radius 🛡️</strong>
+  <!-- repo-tagline:end -->
+</p>
 
 agentbox runs Claude Code or Codex with full autonomy inside an isolated Docker container. The coding agent can work without permission prompts inside the sandbox, while sensitive host paths, git credentials, and system files stay outside the container boundary.
 
