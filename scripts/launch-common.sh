@@ -130,11 +130,13 @@ select_plugin_snapshot() {
   snapshot=$(cat "$AGENTBOX_STATE_DIR/plugin-snapshot")
   [[ "$snapshot" =~ ^snapshot\.[a-zA-Z0-9]+$ ]] || { error "Invalid plugin snapshot"; exit 1; }
   PLUGIN_SNAPSHOT="$AGENTBOX_STATE_DIR/plugin-snapshots/$snapshot"
-  [ -d "$PLUGIN_SNAPSHOT" ] && [ ! -L "$PLUGIN_SNAPSHOT" ] || { error "Missing plugin snapshot; refresh it"; exit 1; }
+  if [ ! -d "$PLUGIN_SNAPSHOT" ] || [ -L "$PLUGIN_SNAPSHOT" ]; then
+    error "Missing plugin snapshot; refresh it"; exit 1
+  fi
 }
 
-# Invoked through the EXIT-trap cleanup function.
-# shellcheck disable=SC2329
+# Invoked through the EXIT-trap cleanup function; ShellCheck 0.9 misses that reachability.
+# shellcheck disable=SC2317,SC2329
 remove_session_path() {
   local path="$1" attempt
   # Docker Desktop can briefly reject removal while nested binds detach.
@@ -146,7 +148,8 @@ remove_session_path() {
   return 1
 }
 
-# shellcheck disable=SC2329
+# Invoked by the EXIT trap; older ShellCheck versions mark its body unreachable.
+# shellcheck disable=SC2317,SC2329
 cleanup_session() {
   local status=$?
   trap - EXIT INT TERM
@@ -188,7 +191,9 @@ apply_staged_session() {
   local name="$1" source path
   [[ "$name" =~ ^session\.[a-zA-Z0-9]+$ ]] || { error "Usage: agentbox apply session.<id>"; exit 1; }
   path="$AGENTBOX_STATE_DIR/sessions/$name"
-  [ ! -L "$path" ] && [ -f "$path/source" ] || { error "Unknown staged session"; exit 1; }
+  if [ -L "$path" ] || [ ! -f "$path/source" ]; then
+    error "Unknown staged session"; exit 1
+  fi
   source=$(cat "$path/source")
   validate_strict_host_path "Apply destination" "$source" || exit 1
   workspace_helper
