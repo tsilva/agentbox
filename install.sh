@@ -272,9 +272,9 @@ do_install() {
 
   banner "Installation complete!"
   list_item "Activate" "source $shell_rc"
-  list_item "Claude" "cd <your-project> && $SCRIPT_NAME --claude"
-  list_item "Codex" "cd <your-project> && $SCRIPT_NAME --codex"
-  list_item "Shell" "$SCRIPT_NAME --claude shell"
+  list_item "Set up a project" "cd <your-project> && $SCRIPT_NAME init --$install_runtime"
+  list_item "Start" "$SCRIPT_NAME"
+  note "Project setup requires jq. Authentication uses your host login or provider API key."
   echo ""
 }
 

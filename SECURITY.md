@@ -57,9 +57,15 @@ agentbox trust --list
 agentbox untrust
 ```
 
-`network: "none"` can run without project trust. Every offline launch, trusted or untrusted, uses private authless runtime state and no host plugins. Claude Code will not be able to reach Anthropic services in that mode.
+`network: "none"` in a legacy config can run without project trust when it requests no additional host mounts or ports. Versioned configs require local grant approval in every mode. Every offline launch, trusted or untrusted, uses private authless runtime state and no host plugins. Claude Code will not be able to reach Anthropic services in that mode.
+
+`agentbox init` validates project settings, displays the effective permissions, and requires explicit approval before writing a versioned `.agentbox.json`. The config contains requested access and preferences, never credentials or local consent. A cloned config cannot approve itself. Versioned configs require separate local records under `~/.agentbox/project-grants` binding project identity/config digests to the effective runtime/image, mode, network, mounts, ports, plugins, staging, project-image opt-in, and resource limits. Changed grants require renewed approval; multiple explicitly approved plans can coexist. `untrust` revokes all plans for that project.
+
+Interactive versioned launches can request approval; unattended launches fail without prompting. Preview remains read-only with respect to state and credentials. Setup never builds a project Dockerfile; its launch opt-in is still explicit. Config symlinks, multiple JSON documents, and concurrent config changes are rejected. Legacy unversioned profiles retain the existing project-identity trust model.
 
 Trust records fail closed when project identity changes. Re-run `agentbox trust` after intentionally replacing the checkout, moving `.git`, changing the remote URL, or changing `.agentbox.json` / `.agentbox.Dockerfile`.
+
+Supply the intended launch flags when approving an override, for example `agentbox --direct trust` or `agentbox --allow-project-dockerfile trust`. Trust validates and displays the plan without reading credentials or building images.
 
 ## Credential Broker
 

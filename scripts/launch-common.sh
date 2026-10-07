@@ -43,11 +43,13 @@ read_preferred_runtime() {
 show_help() {
   cat <<'HELP'
 Usage: agentbox [--claude|--codex] [review|edit|offline] [agent arguments]
+       agentbox init [--claude|--codex] [--profile name]
        agentbox setup --claude|--codex
        agentbox doctor | inspect | trust | untrust | update
        agentbox plugins refresh
 
 Modes: edit (default), review (read-only host mounts), offline (no network/auth).
+--direct       Use host login/API key and normal networking; overrides saved broker access
 --broker       API-key-only provider access; no networking in the agent container
 --plugins      Use the explicitly refreshed, read-only Claude plugin snapshot
 --staged       Edit a private Git-tracked snapshot; use agentbox apply <session>
@@ -58,6 +60,7 @@ HELP
 
 select_installed_image() {
   local file="$AGENTBOX_STATE_DIR/images/$agent_runtime" image
+  [ ! -d "$AGENTBOX_STATE_DIR/images" ] || IMAGE_NAME="agentbox-$agent_runtime"
   if [ -f "$file" ]; then
     [ ! -L "$file" ] || { error "Refusing symlinked image selection"; exit 1; }
     image=$(cat "$file")
@@ -70,6 +73,8 @@ inspect_plan() {
   local credentials=none
   if [ "$broker_mode" = true ]; then credentials=broker-only
   elif [ "$auth_state_required" = true ]; then credentials=selected-runtime; fi
+  [ -z "$profile_name" ] || printf 'Profile: %s\n' "$profile_name"
+  [ ${#extra_ports[@]} -eq 0 ] || printf 'Ports: %s\n' "${extra_ports[*]}"
   printf 'Runtime: %s\nMode: %s\nImage: %s\n' "$agent_runtime" "$launch_mode" "$run_image"
   printf 'Workspace: %s (%s)\n' "$workdir" "$([ "$readonly_mode" = true ] && echo read-only || echo read-write)"
   printf 'Network: %s\nCredentials: %s\nPlugins: %s\n' "${network_mode:-bridge}" \
@@ -94,7 +99,7 @@ doctor() {
   if [ "$agent_runtime" = codex ]; then
     codex_auth_available && printf 'OK: Codex auth source\n' || printf 'ACTION: codex login or export OPENAI_API_KEY\n'
   else
-    [ -s "$HOST_CREDENTIALS_FILE" ] && printf 'OK: Claude auth file\n' || printf 'INFO: Claude login may be stored in Keychain; launch will check it\n'
+    { [ -n "${ANTHROPIC_API_KEY:-}" ] || [ -s "$HOST_CREDENTIALS_FILE" ]; } && printf 'OK: Claude auth file\n' || printf 'INFO: Claude login may be stored in Keychain; launch will check it\n'
   fi
   return "$failed"
 }

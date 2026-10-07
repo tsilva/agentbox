@@ -19,8 +19,9 @@ agentbox/
 ├── scripts/
 │   ├── agentbox-dev.sh        # Dev CLI (build/kill/update)
 │   ├── agentbox-template.sh   # Standalone script template
+│   ├── onboarding.sh          # Project init, config loading, local grant approval
 │   ├── launch-common.sh       # Launch state, preferences, staging, broker lifecycle
-│   ├── render-cli.sh          # Embed launch-common into the standalone CLI
+│   ├── render-cli.sh          # Embed launch and onboarding modules into the standalone CLI
 │   ├── workspace.py           # Optional staged editing and conflict-checked apply
 │   ├── install-agent-clis.sh  # Selected-runtime installer with checksum verification
 │   ├── repo-common.sh          # Shared host-side helpers for repo scripts
@@ -76,7 +77,10 @@ After installation, the `agentbox` command accepts the following arguments:
 # Run Claude Code in the sandbox (interactive mode)
 agentbox
 
-# Save a preferred runtime and inspect effective grants
+# Configure the repository and approve its access plan
+agentbox init
+
+# Save a global runtime preference and inspect effective grants
 agentbox setup --codex
 agentbox doctor
 agentbox inspect
@@ -124,40 +128,47 @@ agentbox --allow-project-dockerfile
 
 ## Per-Project Configuration
 
-Projects can define named profiles via `.agentbox.json` in the project root:
+`agentbox init` creates `.agentbox.json` at the Git checkout root (current directory outside Git). Launches from subdirectories use that root. Versioned configuration:
 
 ```json
 {
-  "dev": {
-    "mounts": [
-      { "path": "/Volumes/Data/input", "readonly": true },
-      { "path": "/Volumes/Data/output" }
-    ],
-    "ports": [
-      { "host": 3000, "container": 3000 }
-    ]
-  },
-  "prod": {
-    "mounts": [
-      { "path": "/Volumes/Data/prod", "readonly": true }
-    ]
+  "version": 1,
+  "runtime": "codex",
+  "default_profile": "dev",
+  "profiles": {
+    "dev": {
+      "mode": "edit",
+      "access": "direct",
+      "mounts": [{ "path": "/Volumes/Data/input", "readonly": true }],
+      "ports": [{ "host": 3000, "container": 3000 }],
+      "network": "bridge",
+      "cpu": "4",
+      "memory": "8g",
+      "pids_limit": 256
+    }
   }
 }
 ```
 
-**Fields:**
-- Root-level keys are profile names
-- `mounts[].path` (required): Absolute canonical host path, mounted to the same path inside the container
-- `mounts[].readonly` (optional): If `true`, mount is read-only (default: `false`)
-- `ports[].host` (required): Host port number (1-65535)
-- `ports[].container` (required): Container port number (1-65535)
-- `network` (optional): Docker network mode — `"bridge"` (default) or `"none"` for full isolation
-- `audit_log` (optional): If `true`, enables session audit logging to `~/.agentbox/logs/` (default: `false`)
-- `cpu` (optional): CPU limit string (e.g., `"4"`) — maps to `docker --cpus`
-- `memory` (optional): Memory limit string (e.g., `"8g"`) — maps to `docker --memory`
-- `pids_limit` (optional): Max number of processes (e.g., `256`) — maps to `docker --pids-limit` (default: `256`)
-- `ulimit_nofile` (optional): Open file descriptors limit (e.g., `"1024:2048"`) — maps to `docker --ulimit nofile=`
-- `ulimit_fsize` (optional): Max file size in bytes (e.g., `1073741824`) — maps to `docker --ulimit fsize=`
+Root fields: `version` (must be `1`), `runtime` (`claude`/`codex`), `default_profile` (existing profile name), and `profiles` (nonempty object). Unknown fields fail closed. Legacy root-level profile maps remain supported and are migrated by `init` without discarding other profiles.
+
+Profile fields:
+
+- `mode`: `edit` (default), `review`, or `offline`
+- `access`: `direct` (default) or `broker`; broker requires API-key auth and API billing
+- `mounts[].path`: absolute canonical host path, mounted at the same path; optional boolean `readonly` defaults to false
+- `ports[].host` and `ports[].container`: integers from 1 to 65535, bound to host localhost
+- `network`: `bridge` (default) or `none`; offline mode disables network/auth regardless
+- `audit_log`: boolean (default false)
+- `cpu`: positive numeric string, for example `"4"`
+- `memory`: positive string, for example `"8g"`
+- `pids_limit`: positive integer (default 256)
+- `ulimit_nofile`: string `"soft:hard"` or `"value"`
+- `ulimit_fsize`: nonnegative integer in bytes
+
+CLI flags override project defaults, which override the global runtime preference. `--direct` overrides a saved broker access mode. `--readonly` always restricts mounts. `init` requires a terminal, validates the launch plan before writing, asks for explicit local approval, and reads authentication only after approval. It does not build project images or install runtimes. A bare launch without config suggests `init`.
+
+Credentials and approvals never go into project config. Versioned launches require local project identity and effective-grant approval, including offline launches. Cloned configs and changed grants prompt only in interactive launch mode; unattended launches fail closed. `agentbox trust` prints and approves the validated plan. `untrust` removes identity and grant records. Preview commands do not prompt or create state.
 
 **Requirements:**
 - `jq` must be installed for config parsing (`brew install jq`)
@@ -169,7 +180,7 @@ Projects can define named profiles via `.agentbox.json` in the project root:
 
 **Profile selection:**
 - With `--profile <name>` or `-P <name>` (uppercase): Use specified profile
-- Without flag: Automatically select one profile; prompt when multiple profiles exist
+- Without flag: Use saved `default_profile`; legacy files select one profile or prompt interactively for multiple profiles
 
 > Note: `-P` (uppercase) is used for profiles to avoid collision with Claude's `-p` (lowercase) print mode.
 
@@ -177,7 +188,7 @@ Projects can define named profiles via `.agentbox.json` in the project root:
 ```bash
 agentbox --profile dev      # Use specific profile
 agentbox -P prod            # Short form (uppercase -P)
-agentbox                    # Interactive prompt
+agentbox                    # Saved runtime and default profile
 agentbox -P dev -p "run tests"  # Profile + print mode
 ```
 

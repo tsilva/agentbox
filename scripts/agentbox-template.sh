@@ -260,6 +260,7 @@ ensure_sandbox_state_dirs() {
 }
 
 # @launch-common
+# @onboarding
 
 sync_directory() {
   local src="$1"
@@ -562,6 +563,13 @@ extra_mounts=()        # Additional -v mounts from profile config
 extra_mounts_info=""   # Human-readable mount info for sandbox awareness
 extra_ports=()         # Additional -p ports from profile config
 workdir="$(pwd)"       # Mount the current directory as the working directory
+requested_workdir="$workdir"
+original_arg_count=$#
+runtime_explicit=false
+mode_explicit=false
+access_explicit=false
+init_mode=false
+profile_extra_grants=false
 profile_name=""        # Selected profile from .agentbox.json
 agent_runtime=""       # Selected agent runtime: claude or codex
 cmd_args=()            # Arguments forwarded to Claude Code inside the container
@@ -605,6 +613,10 @@ for arg in "$@"; do
     show_help; exit 0
   elif [ "$arg" = "--broker" ]; then
     broker_mode=true
+    access_explicit=true
+  elif [ "$arg" = "--direct" ]; then
+    broker_mode=false
+    access_explicit=true
   elif [ "$arg" = "--plugins" ]; then
     plugins_enabled=true
   elif [ "$arg" = "--staged" ]; then
@@ -632,6 +644,7 @@ for arg in "$@"; do
     allow_project_dockerfile=true
   elif [ -z "$first_cmd" ] && [[ "$arg" =~ ^(review|edit|offline)$ ]]; then
     launch_mode="$arg"
+    mode_explicit=true
   elif [ -z "$first_cmd" ] && [ "$arg" = "inspect" ]; then
     inspect_mode=true
     dry_run=true
@@ -658,7 +671,24 @@ if [ -n "$agent_runtime" ] && [[ ! "$agent_runtime" =~ ^(claude|codex)$ ]]; then
   error "Unsupported runtime '$agent_runtime' (allowed: claude, codex)"
   exit 1
 fi
-if [ -z "$agent_runtime" ]; then agent_runtime=$(read_preferred_runtime); fi
+[ -z "$agent_runtime" ] || runtime_explicit=true
+[ "$first_cmd" != init ] || init_mode=true
+project_document=""
+project_original=""
+project_profiles='{}'
+project_versioned=false
+project_runtime=""
+project_default_profile=""
+# Project setup and launches consistently use the checkout root, including from subdirectories.
+case "$first_cmd" in setup|plugins|apply) ;;
+  *)
+    project_root=$(git -C "$workdir" rev-parse --show-toplevel 2>/dev/null || true)
+    if [[ "$project_root" == /* ]] && [ -d "$project_root" ]; then workdir="$project_root"; cd "$workdir"; fi
+    case "$first_cmd:${cmd_args[1]:-}" in untrust:*|trust:--list) ;; *) load_project_config ;; esac
+    ;;
+esac
+if [ -z "$agent_runtime" ]; then agent_runtime="${project_runtime:-$(read_preferred_runtime)}"; fi
+if [ -z "$profile_name" ]; then profile_name="$project_default_profile"; fi
 select_installed_image
 if [ "$first_cmd" = setup ]; then
   ensure_state_root
@@ -670,7 +700,9 @@ elif [ "$first_cmd" = plugins ]; then
   [ "${cmd_args[1]:-}" = refresh ] || { error "Usage: agentbox plugins refresh"; exit 1; }
   refresh_plugins; exit 0
 fi
-[ "$launch_mode" != review ] || readonly_mode=true
+if [ "$original_arg_count" -eq 0 ] && [ -z "$project_document" ]; then
+  error 'Project is not initialized. Run agentbox init.'; exit 1
+fi
 
 # Codex uses `codex exec` for non-interactive prompts. Preserve the familiar
 # agentbox/Claude `-p "prompt"` shortcut when the Codex runtime is selected.
@@ -799,7 +831,7 @@ check_version_staleness() {
     warn "update available ($installed_version → $latest_version) — run: agentbox update"
   fi
 }
-[ "$print_mode" = false ] && [ "$dry_run" = false ] && check_version_staleness
+[ "$print_mode" = false ] && [ "$dry_run" = false ] && [ "$init_mode" = false ] && [ "$first_cmd" != trust ] && [ "$first_cmd" != untrust ] && check_version_staleness
 
 # --- Dangerous path blocklist ---
 # These paths are blocked to prevent exposing sensitive host system data
@@ -994,7 +1026,9 @@ if [ "$first_cmd" = apply ]; then
   apply_staged_session "${cmd_args[1]:-}"; exit 0
 fi
 
-# Validate the implicit working directory mount before any docker args are built.
+# Validate both the invocation path and implicit workspace before building Docker args.
+if ! validate_strict_host_path "Working directory" "$requested_workdir" \
+  "Run agentbox from the canonical path directly"; then exit 1; fi
 if ! validate_strict_host_path "Working directory" "$workdir" \
   "Run agentbox from the canonical path directly"; then
   exit 1
@@ -1088,11 +1122,10 @@ is_project_trusted() {
 }
 
 trust_project() {
-  local record
+  local record identity="${1:-$(project_identity)}"
   ensure_private_dir "$TRUSTED_PROJECTS_DIR"
   record="$(trusted_project_record)"
-  project_identity > "$record"
-  chmod 600 "$record" 2>/dev/null || true
+  write_private_file_content "$record" "$identity"
   success "Trusted project: $workdir"
 }
 
@@ -1101,6 +1134,7 @@ untrust_project() {
   record="$(trusted_project_record)"
   if [ -f "$record" ]; then
     rm -f "$record"
+    remove_private_path "$AGENTBOX_STATE_DIR/project-grants/$(trusted_project_key)"
     success "Untrusted project: $workdir"
   else
     info "Project was not trusted: $workdir"
@@ -1130,73 +1164,48 @@ list_trusted_projects() {
 
 }
 
-if [ "$first_cmd" = "trust" ]; then
-  if [ "${cmd_args[1]:-}" = "--list" ]; then
-    list_trusted_projects
-  else
-    trust_project
-  fi
-  exit 0
-elif [ "$first_cmd" = "untrust" ]; then
-  untrust_project
-  exit 0
+if [ "$first_cmd" = trust ] && [ "${cmd_args[1]:-}" = --list ]; then
+  list_trusted_projects; exit 0
+elif [ "$first_cmd" = untrust ]; then
+  untrust_project; exit 0
 fi
+if [ "$init_mode" = true ]; then prepare_project_init; fi
 
 # --- Per-project configuration (.agentbox.json) ---
-if [ -f ".agentbox.json" ]; then
-  # jq is required to parse the JSON config
-  if ! command -v jq &>/dev/null; then
-    error_block "jq is required to parse .agentbox.json." \
-      "Install jq and retry so profile security settings are not skipped."
-    exit 1
-  else
-    # Validate the config file is a JSON object (not array, string, etc.)
-    jq_error=""
-    if ! jq_error=$(jq -e 'type == "object"' .agentbox.json 2>&1); then
-      error "Invalid .agentbox.json: $jq_error"
-      exit 1
-    fi
-
-    if ! jq -e '
-      def optional(k; t): (has(k) | not) or (. [k] | type == t);
-      all(.[];
-        type == "object" and
-        ((keys - ["mounts","ports","network","audit_log","cpu","memory","pids_limit","ulimit_nofile","ulimit_fsize"]) | length == 0) and
-        optional("mounts"; "array") and optional("ports"; "array") and
-        optional("network"; "string") and optional("audit_log"; "boolean") and
-        optional("cpu"; "string") and optional("memory"; "string") and
-        optional("pids_limit"; "number") and optional("ulimit_nofile"; "string") and optional("ulimit_fsize"; "number") and
-        all((.mounts // [])[]; type == "object" and ((keys - ["path","readonly"]) | length == 0) and (.path | type == "string") and optional("readonly"; "boolean")) and
-        all((.ports // [])[]; type == "object" and ((keys - ["host","container"]) | length == 0) and (.host | type == "number") and (.container | type == "number"))
-      )' .agentbox.json >/dev/null; then
-      error "Invalid .agentbox.json profile schema (unknown field or incorrect type)"; exit 1
-    fi
+if [ -n "$project_document" ]; then
     # Count available profiles (root-level keys in the JSON object)
-    profile_count=$(jq 'keys | length' .agentbox.json 2>/dev/null || echo 0)
+    profile_count=$(project_config_jq 'keys | length')
 
     # If no profile was specified via flag, auto-select or prompt interactively
     if [ -z "$profile_name" ] && [ "$profile_count" -eq 1 ]; then
-      profile_name=$(jq -r 'keys[0]' .agentbox.json)
+      profile_name=$(project_config_jq -r 'keys[0]')
     elif [ -z "$profile_name" ] && [ "$profile_count" -gt 1 ]; then
       # Read profile names into an array for the selection menu (compatible with Bash 3)
       profile_array=()
-      while IFS= read -r _p; do profile_array+=("$_p"); done < <(jq -r 'keys[]' .agentbox.json)
+      while IFS= read -r _p; do profile_array+=("$_p"); done < <(project_config_jq -r 'keys[]')
+      [ -t 0 ] && [ -t 1 ] && [ "$print_mode" = false ] && [ "$dry_run" = false ] || {
+        error 'Multiple profiles require --profile in unattended or preview mode'; exit 1;
+      }
       profile_name=$(choose "Select profile:" "${profile_array[@]}")
     fi
 
     # Validate the selected profile exists in the config
     if [ -n "$profile_name" ]; then
-      if ! jq -e --arg p "$profile_name" 'has($p)' .agentbox.json &>/dev/null; then
+      if ! project_config_jq -e --arg p "$profile_name" 'has($p)' &>/dev/null; then
         error "Profile '$profile_name' not found"
-        note "Available: $(jq -r 'keys | join(", ")' .agentbox.json)"
+        note "Available: $(project_config_jq -r 'keys | join(", ")')"
         exit 1
       fi
 
-      info "Using profile: $profile_name"
+      if [ "$project_versioned" != true ]; then info "Using profile: $profile_name"; fi
+      if [ "$mode_explicit" = false ]; then launch_mode=$(project_config_jq -r --arg p "$profile_name" '.[$p].mode // "edit"'); fi
+      if [ "$access_explicit" = false ] && [ "$launch_mode" != offline ]; then
+        [ "$(project_config_jq -r --arg p "$profile_name" '.[$p].access // "direct"')" != broker ] || broker_mode=true
+      fi
 
       # Extract all profile settings in a single jq call for efficiency.
       # Produces a normalized JSON object with mounts, ports, and scalar options.
-      profile_config=$(jq -r --arg p "$profile_name" '
+      profile_config=$(project_config_jq -r --arg p "$profile_name" '
         .[($p)] | {
           mounts: [(.mounts // [])[] | {path: .path, readonly: (.readonly // false)}],
           ports: [(.ports // [])[] | (.host|tostring) + ":" + (.container|tostring)],
@@ -1208,12 +1217,13 @@ if [ -f ".agentbox.json" ]; then
           ulimit_nofile: (.ulimit_nofile // null),
           ulimit_fsize: (.ulimit_fsize // null)
         }
-      ' .agentbox.json)
+      ')
 
       if [ -z "$profile_config" ]; then
         error "Failed to parse profile '$profile_name' from .agentbox.json"
         exit 1
       fi
+      profile_extra_grants=$(printf '%s' "$profile_config" | jq -r '(.mounts | length) > 0 or (.ports | length) > 0')
 
       # Parse mount specifications and validate each one
       while IFS= read -r mount_json; do
@@ -1315,13 +1325,14 @@ if [ -f ".agentbox.json" ]; then
       [[ "$profile_ulimit_nofile" == "_" ]] && profile_ulimit_nofile=""
       [[ "$profile_ulimit_fsize" == "_" ]] && profile_ulimit_fsize=""
     fi
-  fi
 else
   if [ -n "$profile_name" ]; then
     error "--profile '$profile_name' specified but no .agentbox.json found in $(pwd)"
     exit 1
   fi
 fi
+
+[ "$launch_mode" != review ] || readonly_mode=true
 
 # --- Git read-only .git mount ---
 # When inside a git repo, mount .git as read-only to prevent commits.
@@ -1399,7 +1410,7 @@ configure_session_paths "$AGENTBOX_STATE_DIR/sessions/preview"
 run_image="$IMAGE_NAME"
 project_image_note=""
 project_runtime_args=()
-if [ -f ".agentbox.Dockerfile" ]; then
+if [ -f ".agentbox.Dockerfile" ] && [ "$init_mode" = false ]; then
   if [ "$allow_project_dockerfile" != true ]; then
     error_block "Refusing to build repo-controlled .agentbox.Dockerfile without explicit opt-in." \
       "Review it as full runtime trust: it can replace shells, libraries, and agent binaries." \
@@ -1455,11 +1466,21 @@ if [ "$dry_run" = true ] && [ "$staged_mode" = true ]; then
   workdir="$SESSION_DIR/workspace"
   if [ -n "$git_dir" ]; then extra_mounts=(-v "$git_dir:$workdir/.git:ro"); fi
 fi
+if [ "$init_mode" = true ]; then finish_project_init; exit 0; fi
 if [ "$inspect_mode" = true ]; then inspect_plan; exit 0; fi
+if [ "$first_cmd" = trust ]; then inspect_plan; approve_launch; exit 0; fi
 if [ "$dry_run" != true ]; then
-  if [ "${network_mode:-bridge}" != none ] && ! is_project_trusted; then
-    error "Project is not trusted. Review it, then run agentbox trust."; exit 1
+  assert_project_config_unchanged
+  if { [ "$project_versioned" = true ] || [ "$profile_extra_grants" = true ] || [ "${network_mode:-bridge}" != none ]; } && ! launch_is_approved; then
+    if [ "$project_versioned" = true ] && [ "$print_mode" = false ] && [ -t 0 ] && [ -t 1 ]; then
+      inspect_plan
+      confirm_access 'Approve these project permissions on this machine?' || { info 'Launch cancelled'; exit 0; }
+      approve_launch
+    else
+      error 'Project is not trusted. Review the current permissions, then run agentbox trust (or agentbox init).'; exit 1
+    fi
   fi
+  assert_project_config_unchanged
   if [ "$auth_state_required" = true ]; then require_runtime_auth; fi
   ensure_state_root
   ensure_private_dir "$AGENTBOX_STATE_DIR/sessions"

@@ -35,22 +35,28 @@ For pinned base and agent inputs, `./install.sh --locked` accepts `AGENTBOX_BASE
 Reload your shell, or run `export PATH="$HOME/.agentbox/bin:$PATH"`, then:
 
 ```bash
-agentbox setup --codex           # remember your preferred agent; default is Claude
 cd /path/to/project
-agentbox doctor                 # check Docker, image, tools, and auth sources
+agentbox init                   # choose agent, access, mounts, and limits; approve locally
+agentbox                        # launch with the saved project configuration
+agentbox init                   # review or change the existing setup
 agentbox inspect                # explain effective grants without reading auth
-agentbox trust                  # record reviewed project identity
-agentbox                       # launch your preferred agent in edit mode
+agentbox doctor                 # diagnose Docker, image, tools, and auth sources
 ```
+
+`init` needs `jq` and an interactive terminal. It checks Docker and the selected image, displays the complete access plan, and asks before saving `.agentbox.json` and this machine's permission approval. It checks authentication only after approval and gives the selected agent's login instructions when needed. Cancelling or invalid settings leave the existing config unchanged. Install the chosen runtime before initializing it; `init` does not install or switch images automatically.
+
+Inside a Git checkout, setup and launch commands use the repository root, including when invoked from a subdirectory. Outside Git, they use the current directory. A bare `agentbox` without a config points you to `agentbox init`; explicit launches and legacy profiles remain supported.
 
 Direct authentication supports host Claude/Codex login or the selected agent's API key (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY`). Broker mode requires an API key and does not use subscription login.
 
 ## Commands
 
 ```bash
-agentbox                              # preferred agent, writable project, bridge network
-agentbox review                       # read-only host mounts; direct auth and bridge network
-agentbox edit                         # explicit default mode
+agentbox init                         # configure this project and approve its permissions
+agentbox                              # saved runtime, default profile, and access settings
+agentbox review                       # override the saved mode with read-only host mounts
+agentbox edit                         # override the saved mode with writable editing
+agentbox --direct                      # override saved broker access with direct access
 agentbox offline shell                # no network, credentials, or host plugins
 agentbox --codex -p "explain this code"
 agentbox --claude -p "explain this code"
@@ -63,7 +69,7 @@ agentbox plugins refresh               # explicitly snapshot installed Claude pl
 agentbox --claude --plugins             # mount the snapshot read-only
 agentbox trust --list
 agentbox untrust
-agentbox update                        # update the preferred runtime
+agentbox update                        # update the project-selected or preferred runtime
 agentbox --claude update               # update Claude independently of Codex
 agentbox --codex update                # update Codex independently of Claude
 ```
@@ -80,7 +86,7 @@ agentbox --codex --staged -p "refactor this module"
 agentbox apply session.<id>
 ```
 
-Staging requires Python 3 on the host and launch from the Git root. It copies tracked and unignored regular files, excluding `.git`, `.env*`, `.pem`, `.key`, and symlinks. The source checkout stays unchanged during the session. Apply rejects symlinks, protected files, and conflicts with changes made to the source since staging; it never commits. Staging cannot expose extra host mounts. Apply performs a full conflict preflight, then applies files individually; an I/O failure can leave a partially applied result. Inspect the retained workspace and source before retrying in that case.
+Staging requires Python 3 on the host and a Git checkout. It copies tracked and unignored regular files, excluding `.git`, `.env*`, `.pem`, `.key`, and symlinks. The source checkout stays unchanged during the session. Apply rejects symlinks, protected files, and conflicts with changes made to the source since staging; it never commits. Staging cannot expose extra host mounts. Apply performs a full conflict preflight, then applies files individually; an I/O failure can leave a partially applied result. Inspect the retained workspace and source before retrying in that case.
 
 Development commands from this repo:
 
@@ -102,37 +108,44 @@ docker run --rm -i --network none --entrypoint python3 agentbox - < tests/provid
 
 ## Configuration
 
-Projects can define launch profiles in `.agentbox.json`:
+`agentbox init` creates a shareable `.agentbox.json`:
 
 ```json
 {
-  "dev": {
-    "mounts": [
-      { "path": "/Volumes/Data/input", "readonly": true },
-      { "path": "/Volumes/Data/output" }
-    ],
-    "ports": [
-      { "host": 3000, "container": 3000 }
-    ],
-    "network": "bridge",
-    "audit_log": true,
-    "cpu": "4",
-    "memory": "8g",
-    "pids_limit": 256
+  "version": 1,
+  "runtime": "codex",
+  "default_profile": "dev",
+  "profiles": {
+    "dev": {
+      "mode": "edit",
+      "access": "direct",
+      "mounts": [
+        { "path": "/Volumes/Data/input", "readonly": true }
+      ],
+      "ports": [{ "host": 3000, "container": 3000 }],
+      "network": "bridge",
+      "cpu": "4",
+      "memory": "8g",
+      "pids_limit": 256
+    }
   }
 }
 ```
 
-Use `--profile <name>` or `-P <name>` to select a profile. Without a profile flag, agentbox prompts when a config file has more than one profile.
+`version` must be `1`; `runtime` is `claude` or `codex`; `default_profile` must name an entry in `profiles`. Profile `mode` is `edit` (default), `review`, or `offline`. Profile `access` is `direct` (default) or `broker`. Broker access requires a provider API key and uses API billing; offline mode strips authentication and disables networking. Other profile fields are `mounts`, `ports`, `network`, `audit_log`, `cpu`, `memory`, `pids_limit`, `ulimit_nofile`, and `ulimit_fsize`.
 
-Supported profile fields include `mounts`, `ports`, `network`, `audit_log`, `cpu`, `memory`, `pids_limit`, `ulimit_nofile`, and `ulimit_fsize`.
+`init` configures one profile, retains other profiles and existing advanced settings, and prompts for runtime, mode, access, resource limits, and extra mounts. Edit the JSON to add published ports or advanced limits, then review and approve the resulting permissions. Re-running `init` converts legacy files with profiles at the root into version `1` while preserving their profiles.
+
+Selection order is command-line flags, project settings, then the global runtime preference/defaults. Use `--profile <name>` or `-P <name>` to override the saved profile; `--claude`/`--codex`, `edit`/`review`/`offline`, and `--direct`/`--broker` override their respective settings. `--readonly` always restricts mounts. Legacy files remain accepted; their offline profiles also require local trust when requesting extra mounts or ports. Multiple legacy profiles require an explicit selection in unattended or preview mode.
+
+Project configuration stores preferences and requested access. Credentials stay outside the repository. Local approvals live under `~/.agentbox/trusted-projects` and `~/.agentbox/project-grants`. A cloned versioned config requires local approval, including for offline access. Interactive launches show the plan and request approval when identity, config, image, runtime, or effective permissions change. Unattended launches fail with an actionable error instead of prompting. `agentbox trust` explicitly approves the displayed current plan; `agentbox untrust` removes local approval. `inspect` and `--dry-run` remain free of authentication reads and state writes.
 
 ## Notes
 
-- `jq` is required only when `.agentbox.json` exists. If it is missing, agentbox exits instead of ignoring profile security settings.
+- `jq` is required for `init` and whenever `.agentbox.json` exists. If it is missing, agentbox exits instead of ignoring profile security settings.
 - Project paths and extra mounts must be absolute canonical paths without symlink hops, control characters, or `:` characters; use `pwd -P` if needed.
 - The current project is mounted at the same canonical path inside the container. The `.git` directory is mounted read-only, and host git credentials are not available.
-- Project trust records include path, filesystem identity, git identity, remote URL, and `.agentbox.json`/`.agentbox.Dockerfile` digests. Re-run `agentbox trust` after intentionally changing those trust inputs.
+- Project identity records include path, filesystem identity, git identity, remote URL, and config digests. Versioned configs also require approval of the effective access plan. Approvals are local and cannot be supplied by a committed config.
 - Each launch owns a private directory under `~/.agentbox/sessions/`. Selected-runtime credentials/config are copied only after the complete launch plan and project trust have been validated. Inactive runtime state is empty. Normal exit and interrupts remove transient state, retrying transient mount-detachment errors and reporting persistent cleanup failures. Crashes of the host or forced termination can leave private directories requiring manual removal. Runtime conversation history in these directories is ephemeral. Audit logs remain opt-in.
 - Offline launches never copy host authentication. Broker launches put the provider key only in the separate broker's private mount; the agent gets a session capability that stops working when the broker exits.
 - Claude plugins are absent by default. `agentbox plugins refresh` creates a versioned snapshot; `--plugins` opts into a read-only snapshot without copying it at every launch. Old snapshots are retained for active sessions and can be removed manually when no longer used.
