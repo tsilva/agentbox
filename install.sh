@@ -185,8 +185,11 @@ install_prebuilt() {
   image=$(jq -er --arg key "$key" '.images[$key].reference | strings' "$manifest") || { rm -f "$manifest"; error 'Invalid release image index'; exit 1; }
   broker=$(jq -er '.images.broker.reference | strings' "$manifest") || { rm -f "$manifest"; error 'Missing broker image'; exit 1; }
   rm -f "$manifest"
-  [[ "$image" =~ ^ghcr\.io/tsilva/agentbox-$key@sha256:[a-f0-9]{64}$ ]] && \
-    [[ "$broker" =~ ^ghcr\.io/tsilva/agentbox-broker@sha256:[a-f0-9]{64}$ ]] || { error 'Release references must be agentbox images pinned by SHA-256'; exit 1; }
+  if ! [[ "$image" =~ ^ghcr\.io/tsilva/agentbox-$key@sha256:[a-f0-9]{64}$ ]] ||
+    ! [[ "$broker" =~ ^ghcr\.io/tsilva/agentbox-broker@sha256:[a-f0-9]{64}$ ]]; then
+    error 'Release references must be agentbox images pinned by SHA-256'
+    exit 1
+  fi
   for ref in "$image" "$broker"; do
     cosign verify --certificate-identity \
       https://github.com/tsilva/agentbox/.github/workflows/release-images.yml@refs/heads/main \
