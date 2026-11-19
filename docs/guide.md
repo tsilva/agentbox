@@ -86,6 +86,8 @@ agentbox --codex update                # update Codex independently of Claude
 
 Broker mode disables networking in the agent container. A loopback relay connects through a read-only Unix socket mount in a private Docker-managed tmpfs volume to a separate broker that holds the provider key and forwards only fixed provider routes. General web access, package downloads, and published ports are unavailable in this mode. Switching to direct mode grants broader network and credential access explicitly; broker failure never switches modes automatically.
 
+Codex broker sessions in review mode keep runtime state in container tmpfs. The workspace and host-backed configuration mounts stay read-only.
+
 #### External broker
 
 A trusted launcher can supply an existing Docker local tmpfs volume containing

@@ -106,6 +106,12 @@ case "${AGENTBOX_RUNTIME:-claude}" in
     exec claude --dangerously-skip-permissions "$@"
     ;;
   codex)
+    if [ "${AGENTBOX_BROKER:-false}" = true ] && [ "${AGENTBOX_READONLY:-false}" = true ]; then
+      # Codex initializes state at the root of its home even in review mode.
+      CODEX_HOME=$(mktemp -d /tmp/agentbox-codex.XXXXXXXX)
+      export CODEX_HOME
+      cp -- /home/claude/.codex/config.toml "$codex_agents_path" "$CODEX_HOME/"
+    fi
     exec codex --dangerously-bypass-approvals-and-sandbox "$@"
     ;;
   *)
