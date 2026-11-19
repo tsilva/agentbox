@@ -51,6 +51,7 @@ Usage: agentbox [--claude|--codex] [review|edit|offline] [agent arguments]
 Modes: edit (default), review (read-only host mounts), offline (no network/auth).
 --direct       Use host login/API key and normal networking; overrides saved broker access
 --broker       API-key-only provider access; no networking in the agent container
+--broker-volume NAME  Use an operator-managed broker socket in an existing tmpfs volume
 --plugins      Use the explicitly refreshed, read-only Claude plugin snapshot
 --staged       Edit a private Git-tracked snapshot; use agentbox apply <session>
 --dry-run      Print the launch command without reading auth or writing state
@@ -71,7 +72,8 @@ select_installed_image() {
 
 inspect_plan() {
   local credentials=none
-  if [ "$broker_mode" = true ]; then credentials=broker-only
+  if [ -n "$external_broker_volume" ]; then credentials=external-broker
+  elif [ "$broker_mode" = true ]; then credentials=broker-only
   elif [ "$auth_state_required" = true ]; then credentials=selected-runtime; fi
   [ -z "$profile_name" ] || printf 'Profile: %s\n' "$profile_name"
   [ ${#extra_ports[@]} -eq 0 ] || printf 'Ports: %s\n' "${extra_ports[*]}"
@@ -198,6 +200,17 @@ apply_staged_session() {
   validate_strict_host_path "Apply destination" "$source" || exit 1
   workspace_helper
   python3 "$WORKSPACE_HELPER" apply "$path"
+}
+
+check_external_broker() {
+  local volume_type
+  if ! [[ "${AGENTBOX_BROKER_TOKEN:-}" =~ ^[0-9a-f]{64}$ ]]; then
+    error "The external broker requires its session token in AGENTBOX_BROKER_TOKEN"; exit 1
+  fi
+  volume_type=$(docker volume inspect --format '{{.Driver}}:{{index .Options "type"}}:{{index .Options "device"}}' \
+    "$external_broker_volume") || { error "External broker volume is unavailable"; exit 1; }
+  [ "$volume_type" = "local:tmpfs:tmpfs" ] || { error "External broker volume must use local tmpfs storage"; exit 1; }
+  export AGENTBOX_BROKER_TOKEN
 }
 
 start_broker() {

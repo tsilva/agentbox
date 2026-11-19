@@ -86,6 +86,27 @@ agentbox --codex update                # update Codex independently of Claude
 
 Broker mode disables networking in the agent container. A loopback relay connects through a read-only Unix socket mount in a private Docker-managed tmpfs volume to a separate broker that holds the provider key and forwards only fixed provider routes. General web access, package downloads, and published ports are unavailable in this mode. Switching to direct mode grants broader network and credential access explicitly; broker failure never switches modes automatically.
 
+#### External broker
+
+A trusted launcher can supply an existing Docker local tmpfs volume containing
+`api.sock` on the same Docker daemon. Pass `--broker-volume VOLUME` and set
+`AGENTBOX_BROKER_TOKEN` to that broker's session-only capability (64 lowercase
+hex digits). The socket must be reachable by the agent container's user and
+serve the selected runtime's broker protocol. The agent uses its ordinary
+loopback relay and mounts the volume read-only.
+
+The external launcher owns the broker, credentials, and volume lifetime.
+Agentbox starts only the agent, with no provider key, host login, or published
+ports. The external selection is a launch flag and cannot be saved in a project
+profile. Use `inspect` with the flag to see the plan without accessing the volume
+or reading the token.
+
+To forward an external HTTP/2 broker over a private attached byte stream, an
+operator can run the broker image with `broker-stdio-relay /socket/api.sock`.
+Attach stdin and stdout without a TTY, disable container logging, and mount the
+same tmpfs volume at `/socket`. Run the relay with `--network none`. The other end
+of the stream must be the trusted broker.
+
 ## Staged edits
 
 For an optional workspace copy that you review before applying:

@@ -199,6 +199,11 @@ func run(args []string) error {
 		}
 		return serve(listener, brokerHandler(c, nil))
 	}
+	if len(args) == 2 && args[0] == "broker-stdio-relay" {
+		conn, done := attachedStream(os.Stdin, os.Stdout)
+		defer conn.Close()
+		return serveAttachedRelay(args[1], conn, done)
+	}
 	if len(args) == 2 && args[0] == "relay" {
 		token := os.Getenv("AGENTBOX_BROKER_TOKEN")
 		if len(token) < 32 {
@@ -210,7 +215,7 @@ func run(args []string) error {
 		}
 		return serve(listener, relayHandler(args[1], token))
 	}
-	return errors.New("usage: agentbox-broker broker <socket> <credentials> | relay <socket> | probe <address> | probe-unix <socket>")
+	return errors.New("usage: agentbox-broker broker <socket> <credentials> | broker-stdio-relay <socket> | relay <socket> | probe <address> | probe-unix <socket>")
 }
 
 func main() {

@@ -40,7 +40,7 @@ agentbox --profile dev          # select a saved profile
 agentbox update                 # update the selected runtime
 ```
 
-For API-key access that keeps the provider key outside the agent container, use `--broker`. For a workspace copy you can review before applying, use `--staged` (requires host Python 3). See the [guide](docs/guide.md) for these modes, plugins, configuration, and development commands.
+For API-key access that keeps the provider key outside the agent container, use `--broker`. An operator can also supply an external broker with `--broker-volume`. For a workspace copy you can review before applying, use `--staged` (requires host Python 3). See the [guide](docs/guide.md) for these modes, plugins, configuration, and development commands.
 
 ## Notes
 

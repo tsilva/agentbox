@@ -41,6 +41,8 @@ if args[:1] == ['run']:
 elif args[:1]==['logs']: print('session output')
 elif args[:1]==['volume']:
  with (root/'volumes.jsonl').open('a') as f: f.write(json.dumps(args)+'\\n')
+ if args[1]=='inspect':
+  print(os.environ.get('MOCK_VOLUME_TYPE','local:tmpfs:tmpfs'))
 '''
 
 
@@ -252,6 +254,41 @@ os.execv('/bin/rm',['rm',*sys.argv[1:]])
         self.run_cli('--codex','offline','--broker','--dry-run',code=1)
         (self.project/'.agentbox.json').write_text('{"dev":{"ports":[{"host":3000,"container":3000}]}}')
         self.run_cli('--codex','--broker','--dry-run',code=1)
+
+    def test_external_broker_launches_one_isolated_agent_without_owning_the_volume(self):
+        self.trusted()
+        token = '4' * 64
+        self.run_cli('--codex','--broker-volume','fixture-socket','-p','hello',
+                     env={'AGENTBOX_BROKER_TOKEN':token,'OPENAI_API_KEY':'provider-canary'})
+        (agent,) = self.records()
+        self.assertIn('type=volume,src=fixture-socket,dst=/run/agentbox,readonly,volume-nocopy',
+                      agent['args'])
+        net = agent['args'].index('--network')
+        self.assertEqual(agent['args'][net+1], 'none')
+        self.assertIn('AGENTBOX_BROKER_TOKEN', agent['env'])
+        self.assertNotIn(token, json.dumps(agent))
+        self.assertNotIn('OPENAI_API_KEY', agent['env'])
+        self.assertNotIn('/home/claude/.codex/auth.json', agent['content'])
+        self.assertIn('wire_api = "responses"',agent['content']['/home/claude/.codex/config.toml'])
+        volume_calls = [json.loads(line) for line in (self.capture/'volumes.jsonl').read_text().splitlines()]
+        self.assertEqual([call[1] for call in volume_calls], ['inspect'])
+
+    def test_external_broker_validates_selection_without_fallback(self):
+        self.trusted()
+        selection = ('--codex','--broker-volume','fixture-socket')
+        preview = self.run_cli(*selection,'inspect')
+        self.assertIn('Credentials: external-broker', preview.stdout)
+        self.assertFalse((self.capture/'volumes.jsonl').exists())
+        self.run_cli(*selection,'-p','hello',code=1,env={'OPENAI_API_KEY':'provider-canary'})
+        self.run_cli(*selection,'-p','hello',code=1,
+                     env={'AGENTBOX_BROKER_TOKEN':'4'*64,'MOCK_VOLUME_TYPE':'local:bind:/share'})
+        self.run_cli('--broker-volume','/absolute/path','--dry-run',code=1)
+        self.run_cli('--broker-volume',code=1)
+        self.run_cli(*selection,'--direct','--dry-run',code=1)
+        self.run_cli(*selection,'offline','--dry-run',code=1)
+        self.run_cli(*selection,'init',code=1)
+        self.assertEqual(self.records(), [])
+        self.assertFalse((self.state/'sessions').exists())
 
     def test_schema_failure_before_auth_or_state(self):
         for config in ['{"dev":{"network":false}}','{"dev":{"audit_log":"yes"}}','{"dev":{"memroy":"1g"}}','{"dev":{"mounts":[{"path":"/tmp","readonly":"false"}]}}']:

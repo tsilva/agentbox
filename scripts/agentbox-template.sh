@@ -583,6 +583,9 @@ print_mode=false       # When true, the runtime is in non-interactive mode (no T
 allow_project_dockerfile=false  # When true, permit trusted per-project image builds
 launch_mode="edit"
 broker_mode=false
+direct_explicit=false
+broker_volume_pending=false
+external_broker_volume=""
 plugins_enabled=false
 staged_mode=false
 inspect_mode=false
@@ -599,6 +602,10 @@ for arg in "$@"; do
     [ -n "$first_cmd" ] || first_cmd="$arg"
     if [ "$arg" = -p ] || [ "$arg" = --print ]; then print_mode=true; fi
     cmd_args+=("$arg")
+  elif [ "$broker_volume_pending" = true ]; then
+    [[ "$arg" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]+$ ]] || { error "Expected a Docker volume name after --broker-volume"; exit 1; }
+    external_broker_volume="$arg"
+    broker_volume_pending=false
   elif [ "$arg" = "--" ]; then
     parse_agent_args=true
   elif [ "$skip_next" = true ]; then
@@ -614,9 +621,13 @@ for arg in "$@"; do
   elif [ "$arg" = "--broker" ]; then
     broker_mode=true
     access_explicit=true
+  elif [ "$arg" = "--broker-volume" ]; then
+    [ -z "$external_broker_volume" ] || { error "--broker-volume may only be supplied once"; exit 1; }
+    broker_volume_pending=true
   elif [ "$arg" = "--direct" ]; then
     broker_mode=false
     access_explicit=true
+    direct_explicit=true
   elif [ "$arg" = "--plugins" ]; then
     plugins_enabled=true
   elif [ "$arg" = "--staged" ]; then
@@ -659,6 +670,15 @@ for arg in "$@"; do
   fi
 done
 
+if [ "$broker_volume_pending" = true ]; then
+  error "--broker-volume requires a Docker volume name"; exit 1
+fi
+if [ -n "$external_broker_volume" ]; then
+  [ "$direct_explicit" = false ] || { error "--broker-volume cannot be combined with --direct"; exit 1; }
+  [ "$first_cmd" != init ] || { error "--broker-volume is a launch option and cannot be saved by init"; exit 1; }
+  broker_mode=true
+  access_explicit=true
+fi
 if [ "$skip_next" = true ]; then
   error "--profile requires a value"
   exit 1
@@ -1481,6 +1501,7 @@ if [ "$dry_run" != true ]; then
     fi
   fi
   assert_project_config_unchanged
+  if [ -n "$external_broker_volume" ]; then check_external_broker; fi
   if [ "$auth_state_required" = true ]; then require_runtime_auth; fi
   ensure_state_root
   ensure_private_dir "$AGENTBOX_STATE_DIR/sessions"
@@ -1496,7 +1517,7 @@ if [ "$dry_run" != true ]; then
   else use_authless_sandbox_state; prepare_sandbox_non_auth_state; fi
   prepare_empty_runtime_state
   if [ "$broker_mode" = true ]; then
-    start_broker
+    [ -n "$external_broker_volume" ] || start_broker
     if [ "$agent_runtime" = codex ]; then
       write_private_file_content "$ACTIVE_SANDBOX_CODEX_DIR/config.toml" \
         'model_provider = "agentbox"
@@ -1550,7 +1571,11 @@ if [ "$agent_runtime" = claude ] && [ "$auth_state_required" = true ] && [ -n "$
 fi
 if [ "$broker_mode" = true ]; then
   runtime_env_args+=(-e AGENTBOX_BROKER_TOKEN -e AGENTBOX_BROKER=true)
-  extra_mounts+=(-v "${broker_socket_volume:-agentbox-socket-preview}:/run/agentbox:ro")
+  if [ -n "$external_broker_volume" ]; then
+    extra_mounts+=(--mount "type=volume,src=$external_broker_volume,dst=/run/agentbox,readonly,volume-nocopy")
+  else
+    extra_mounts+=(-v "${broker_socket_volume:-agentbox-socket-preview}:/run/agentbox:ro")
+  fi
   if [ "$agent_runtime" = claude ]; then
     runtime_env_args+=(-e ANTHROPIC_BASE_URL=http://127.0.0.1:18080 -e ANTHROPIC_AUTH_TOKEN=agentbox-session -e CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1)
   fi

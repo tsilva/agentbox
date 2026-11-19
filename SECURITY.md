@@ -75,6 +75,12 @@ The broker accepts a per-session capability and only `POST /v1/responses` for Co
 
 There is no fallback to raw keys or direct networking if the broker fails. Broker and relay code remain trusted software. A compromised agent can still send permitted workspace data to the provider or consume API usage within the session limits; those limits are not a monetary/token budget. Provider responses remain untrusted application data.
 
+`--broker-volume` uses a broker explicitly supplied by a trusted operator. The
+agent still runs with `--network none`, a read-only tmpfs socket mount, and
+authless runtime state. The external broker owns provider authentication and
+must enforce the intended route, request, and session limits. Agentbox never
+starts or stops that broker and does not remove its volume.
+
 ## State And Extensions
 
 Transient runtime state is private to each launch and removed on normal exit or handled interrupts. Cleanup retries transient filesystem errors; persistent state-removal failure reports the private path and returns a nonzero status. Broker sockets use a private Docker-managed tmpfs volume, mounted read-only in the agent. Hard process termination or host crashes can leave private state, including credentials, under `~/.agentbox/sessions/`, managed containers, and socket volumes; remove abandoned resources when no session uses them. Audit logs are private but may contain agent output and secrets. Plugins require explicit refresh and opt-in and are mounted read-only; plugin execution retains the session's authority.
