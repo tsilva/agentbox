@@ -71,7 +71,12 @@ agentbox/
 
 ## Usage
 
-After installation, the `agentbox` command accepts the following arguments:
+For authenticated launches initiated by an agent, use the approved Runbox
+profile through the external broker launcher. If the profile is missing or
+fails, report the blocker. Keep host-login and API-key modes for direct operator
+use. `agentbox inspect` and `agentbox offline shell` need no provider access.
+
+The following examples are for operating Agentbox directly:
 
 ```bash
 # Run Claude Code in the sandbox (interactive mode)
@@ -85,13 +90,10 @@ agentbox setup --codex
 agentbox doctor
 agentbox inspect
 
-# Read-only review, explicit edit, or offline shell without authentication
+# Choose read-only review, writable editing, or an unauthenticated offline shell
 agentbox review
 agentbox edit
 agentbox offline shell
-
-# API-key-only provider access, with the key held outside the agent container
-agentbox --codex --broker -p "explain this code"
 
 # Opt into a reviewed private workspace; apply after reviewing the printed path
 agentbox --codex --staged -p "refactor this module"
